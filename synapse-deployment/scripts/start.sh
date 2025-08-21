@@ -19,6 +19,9 @@ DOMAIN_NAME="yourdomain.com"
 MATRIX_DOMAIN="matrix.yourdomain.com"
 MONITORING_DOMAIN="monitoring.yourdomain.com"
 
+# Docker Compose 命令（自动探测）
+COMPOSE_CMD=""
+
 # 日志函数
 log_info() {
     echo -e "${BLUE}[INFO]${NC} $1"
@@ -181,12 +184,16 @@ check_dependencies() {
         exit 1
     fi
     
-    if ! command -v docker-compose &> /dev/null && ! docker compose version &> /dev/null; then
+    if command -v docker-compose &> /dev/null; then
+        COMPOSE_CMD="docker-compose"
+    elif docker compose version &> /dev/null; then
+        COMPOSE_CMD="docker compose"
+    else
         log_error "Docker Compose未安装，请先安装Docker Compose"
         exit 1
     fi
     
-    log_success "依赖项检查完成"
+    log_success "依赖项检查完成 (使用: ${COMPOSE_CMD})"
 }
 
 # 检查环境变量文件
@@ -280,7 +287,7 @@ check_system_resources() {
 build_images() {
     log_info "构建Synapse Docker镜像..."
     
-    if docker-compose build synapse; then
+    if ${COMPOSE_CMD} build synapse; then
         log_success "Synapse镜像构建完成"
     else
         log_error "Synapse镜像构建失败"
@@ -294,14 +301,14 @@ start_services() {
     
     # 首先启动基础服务
     log_info "启动数据库和缓存服务..."
-    docker-compose up -d postgres redis
+    ${COMPOSE_CMD} up -d postgres redis
     
     # 等待数据库就绪
     log_info "等待数据库就绪..."
     sleep 30
     
     # 检查数据库连接
-    if ! docker-compose exec -T postgres pg_isready -U synapse -d synapse; then
+    if ! ${COMPOSE_CMD} exec -T postgres pg_isready -U synapse -d synapse; then
         log_error "数据库连接失败"
         exit 1
     fi
@@ -310,7 +317,7 @@ start_services() {
     
     # 启动Synapse主服务
     log_info "启动Synapse服务..."
-    docker-compose up -d synapse
+    ${COMPOSE_CMD} up -d synapse
     
     # 等待Synapse就绪
     log_info "等待Synapse服务就绪..."
@@ -318,11 +325,11 @@ start_services() {
     
     # 启动其他服务
     log_info "启动Web服务器和监控服务..."
-    docker-compose up -d nginx prometheus grafana
+    ${COMPOSE_CMD} up -d nginx prometheus grafana
     
     # 启动监控导出器
     log_info "启动监控导出器..."
-    docker-compose up -d node-exporter postgres-exporter redis-exporter nginx-exporter
+    ${COMPOSE_CMD} up -d node-exporter postgres-exporter redis-exporter nginx-exporter
     
     log_success "所有服务启动完成"
 }
@@ -334,12 +341,12 @@ check_services() {
     sleep 10
     
     # 检查容器状态
-    if docker-compose ps | grep -q "Up"; then
+    if ${COMPOSE_CMD} ps | grep -q "Up"; then
         log_success "服务状态检查："
-        docker-compose ps
+        ${COMPOSE_CMD} ps
     else
         log_error "部分服务启动失败"
-        docker-compose ps
+        ${COMPOSE_CMD} ps
         exit 1
     fi
     
@@ -362,7 +369,7 @@ check_services() {
     
     if [ $attempt -gt $max_attempts ]; then
         log_error "Synapse健康检查失败"
-        log_error "请检查日志: docker-compose logs synapse"
+        log_error "请检查日志: ${COMPOSE_CMD} logs synapse"
         exit 1
     fi
 }
@@ -386,10 +393,10 @@ show_access_info() {
     echo "  搜索用户:        GET /_matrix/client/r0/friends/search"
     echo
     log_info "管理命令："
-    echo "  查看日志:        docker-compose logs -f [service_name]"
-    echo "  重启服务:        docker-compose restart [service_name]"
-    echo "  停止服务:        docker-compose down"
-    echo "  更新服务:        docker-compose pull && docker-compose up -d"
+    echo "  查看日志:        ${COMPOSE_CMD} logs -f [service_name]"
+    echo "  重启服务:        ${COMPOSE_CMD} restart [service_name]"
+    echo "  停止服务:        ${COMPOSE_CMD} down"
+    echo "  更新服务:        ${COMPOSE_CMD} pull && ${COMPOSE_CMD} up -d"
     echo
     log_warning "注意事项："
     echo "  1. 首次启动可能需要几分钟时间"
