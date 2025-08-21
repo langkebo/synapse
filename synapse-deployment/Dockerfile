@@ -37,8 +37,8 @@ RUN pip install --no-cache-dir -r /tmp/requirements.txt
 RUN git clone --depth 1 --branch ${SYNAPSE_VERSION} https://github.com/matrix-org/synapse.git /tmp/synapse
 WORKDIR /tmp/synapse
 
-# 复制好友功能扩展代码（仓库根目录存在 synapse/ 上游源码目录）
-COPY ./synapse/ /tmp/synapse/
+# 复制好友功能扩展代码（将本地的 synapse/ 包合并到上游源码的 synapse/ 包内，避免顶层名字冲突）
+COPY ./synapse/ /tmp/synapse/synapse/
 
 # 安装Synapse（禁用构建隔离，以便使用上一步安装的依赖，如 Pillow）
 RUN pip install --no-cache-dir --no-build-isolation -e .
