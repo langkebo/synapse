@@ -1,0 +1,537 @@
+# 系统级别告警规则
+# 针对1核2GB服务器的系统资源监控告警
+
+groups:
+  # 系统资源告警
+  - name: system.resources
+    interval: 30s
+    rules:
+      # CPU使用率过高
+      - alert: HighCPUUsage
+        expr: |
+          100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 3m
+        labels:
+          severity: warning
+          component: system
+          resource: cpu
+          team: sre
+        annotations:
+          summary: "CPU使用率过高"
+          description: |
+            服务器CPU使用率超过80%，当前值: {{ printf "%.2f" $value }}%
+            实例: {{ $labels.instance }}
+            
+            影响：
+            - 系统响应变慢
+            - 可能导致服务超时
+            - 影响用户体验
+            
+            建议操作：
+            1. 检查高CPU进程
+            2. 优化应用性能
+            3. 考虑扩容
+          runbook_url: "https://monitoring.cjystx.top/runbooks/high-cpu"
+          dashboard_url: "http://grafana:3000/d/system/system-monitoring"
+      
+      # CPU使用率极高（紧急）
+      - alert: CriticalCPUUsage
+        expr: |
+          100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 95
+        for: 1m
+        labels:
+          severity: critical
+          component: system
+          resource: cpu
+          team: sre
+        annotations:
+          summary: "CPU使用率极高（紧急）"
+          description: |
+            服务器CPU使用率超过95%，系统可能即将无响应
+            当前值: {{ printf "%.2f" $value }}%
+            实例: {{ $labels.instance }}
+            
+            紧急操作：
+            1. 立即检查系统负载
+            2. 终止高CPU进程
+            3. 重启相关服务
+          runbook_url: "https://monitoring.cjystx.top/runbooks/critical-cpu-usage"
+      
+      # 内存使用率过高
+      - alert: HighMemoryUsage
+        expr: |
+          (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
+        for: 2m
+        labels:
+          severity: warning
+          component: system
+          resource: memory
+          team: sre
+        annotations:
+          summary: "内存使用率过高"
+          description: |
+            服务器内存使用率超过85%，当前值: {{ printf "%.2f" $value }}%
+            实例: {{ $labels.instance }}
+            可用内存: {{ with query "node_memory_MemAvailable_bytes" }}{{ . | first | value | humanize1024 }}B{{ end }}
+            总内存: {{ with query "node_memory_MemTotal_bytes" }}{{ . | first | value | humanize1024 }}B{{ end }}
+            
+            影响：
+            - 可能触发OOM
+            - 系统性能下降
+            - 服务可能被杀死
+            
+            建议操作：
+            1. 检查内存占用进程
+            2. 清理不必要的缓存
+            3. 重启高内存服务
+          runbook_url: "https://monitoring.cjystx.top/runbooks/high-memory"
+      
+      # 内存使用率极高（紧急）
+      - alert: CriticalMemoryUsage
+        expr: |
+          (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 95
+        for: 30s
+        labels:
+          severity: critical
+          component: system
+          resource: memory
+          team: sre
+        annotations:
+          summary: "内存使用率极高（紧急）"
+          description: |
+            服务器内存使用率超过95%，系统可能即将OOM
+            当前值: {{ printf "%.2f" $value }}%
+            实例: {{ $labels.instance }}
+            
+            紧急操作：
+            1. 立即释放内存
+            2. 重启高内存进程
+            3. 清理系统缓存
+          runbook_url: "https://monitoring.cjystx.top/runbooks/critical-memory-usage"
+      
+      # 磁盘空间不足
+      - alert: DiskSpaceLow
+        expr: |
+          (1 - (node_filesystem_avail_bytes{fstype!="tmpfs",fstype!="overlay"} / 
+                node_filesystem_size_bytes{fstype!="tmpfs",fstype!="overlay"})) * 100 > 85
+        for: 1m
+        labels:
+          severity: warning
+          component: system
+          resource: disk
+          team: sre
+        annotations:
+          summary: "磁盘空间不足"
+          description: |
+            磁盘使用率超过85%，当前值: {{ printf "%.2f" $value }}%
+            挂载点: {{ $labels.mountpoint }}
+            设备: {{ $labels.device }}
+            实例: {{ $labels.instance }}
+            
+            可用空间: {{ with query "node_filesystem_avail_bytes" }}{{ . | first | value | humanize1024 }}B{{ end }}
+            总空间: {{ with query "node_filesystem_size_bytes" }}{{ . | first | value | humanize1024 }}B{{ end }}
+            
+            影响：
+            - 无法写入新数据
+            - 日志可能停止记录
+            - 服务可能崩溃
+            
+            建议操作：
+            1. 清理临时文件
+            2. 删除旧日志文件
+            3. 清理Docker镜像
+          runbook_url: "https://monitoring.cjystx.top/runbooks/low-disk"
+      
+      # 磁盘空间严重不足
+      - alert: CriticalDiskSpace
+        expr: |
+          (1 - (node_filesystem_avail_bytes{fstype!="tmpfs",fstype!="overlay"} / 
+                node_filesystem_size_bytes{fstype!="tmpfs",fstype!="overlay"})) * 100 > 95
+        for: 30s
+        labels:
+          severity: critical
+          component: system
+          resource: disk
+          team: sre
+        annotations:
+          summary: "磁盘空间严重不足（紧急）"
+          description: |
+            磁盘使用率超过95%，系统可能即将无法写入
+            当前值: {{ printf "%.2f" $value }}%
+            挂载点: {{ $labels.mountpoint }}
+            设备: {{ $labels.device }}
+            
+            紧急操作：
+            1. 立即清理大文件
+            2. 停止非关键服务
+            3. 扩容磁盘空间
+          runbook_url: "https://monitoring.cjystx.top/runbooks/critical-disk-space"
+      
+      # 系统负载过高
+      - alert: HighSystemLoad
+        expr: node_load15 / on(instance) count by(instance)(node_cpu_seconds_total{mode="idle"}) > 2
+        for: 5m
+        labels:
+          severity: warning
+          component: system
+          resource: load
+          team: sre
+        annotations:
+          summary: "系统负载过高"
+          description: |
+            15分钟平均负载超过CPU核心数的2倍
+            当前负载: {{ printf "%.2f" $value }}
+            实例: {{ $labels.instance }}
+            
+            影响：
+            - 系统响应缓慢
+            - 进程等待时间长
+            - 整体性能下降
+            
+            建议操作：
+            1. 检查高负载进程
+            2. 优化系统性能
+            3. 分析负载来源
+          runbook_url: "https://monitoring.cjystx.top/runbooks/high-load"
+      
+      # 磁盘I/O使用率过高
+      - alert: HighDiskIOUsage
+        expr: |
+          rate(node_disk_io_time_seconds_total[5m]) * 100 > 80
+        for: 3m
+        labels:
+          severity: warning
+          component: system
+          resource: disk_io
+          team: sre
+        annotations:
+          summary: "磁盘I/O使用率过高"
+          description: |
+            磁盘I/O使用率超过80%，当前值: {{ printf "%.2f" $value }}%
+            设备: {{ $labels.device }}
+            实例: {{ $labels.instance }}
+            
+            影响：
+            - 磁盘响应变慢
+            - 数据库性能下降
+            - 应用响应时间增加
+            
+            建议操作：
+            1. 检查高I/O进程
+            2. 优化数据库查询
+            3. 考虑使用SSD
+          runbook_url: "https://monitoring.cjystx.top/runbooks/high-disk-io"
+
+  # 网络监控告警
+  - name: system.network
+    interval: 30s
+    rules:
+      # 网络连接数过多
+      - alert: TooManyNetworkConnections
+        expr: node_netstat_Tcp_CurrEstab > 1000
+        for: 2m
+        labels:
+          severity: warning
+          component: system
+          resource: network
+          team: sre
+        annotations:
+          summary: "网络连接数过多"
+          description: |
+            TCP连接数超过1000，当前值: {{ $value }}
+            实例: {{ $labels.instance }}
+            
+            可能原因：
+            - 连接泄漏
+            - 高并发访问
+            - DDoS攻击
+            
+            建议操作：
+            1. 检查连接状态
+            2. 分析连接来源
+            3. 调整连接池配置
+          runbook_url: "https://monitoring.cjystx.top/runbooks/too-many-connections"
+      
+      # 网络错误率过高
+      - alert: HighNetworkErrorRate
+        expr: |
+          (
+            rate(node_network_receive_errs_total[5m]) + 
+            rate(node_network_transmit_errs_total[5m])
+          ) > 10
+        for: 2m
+        labels:
+          severity: warning
+          component: system
+          resource: network
+          team: sre
+        annotations:
+          summary: "网络错误率过高"
+          description: |
+            网络错误率超过10个错误/秒，当前值: {{ printf "%.2f" $value }}
+            网卡: {{ $labels.device }}
+            实例: {{ $labels.instance }}
+            
+            可能原因：
+            - 网络硬件问题
+            - 网络拥塞
+            - 驱动程序问题
+            
+            建议操作：
+            1. 检查网络硬件
+            2. 分析网络流量
+            3. 更新网卡驱动
+          runbook_url: "https://monitoring.cjystx.top/runbooks/high-network-errors"
+      
+      # 网络带宽使用率过高
+      - alert: HighNetworkBandwidthUsage
+        expr: |
+          (
+            rate(node_network_receive_bytes_total{device!="lo"}[5m]) + 
+            rate(node_network_transmit_bytes_total{device!="lo"}[5m])
+          ) * 8 / 1024 / 1024 > 80
+        for: 3m
+        labels:
+          severity: warning
+          component: system
+          resource: network
+          team: sre
+        annotations:
+          summary: "网络带宽使用率过高"
+          description: |
+            网络带宽使用超过80Mbps，当前值: {{ printf "%.2f" $value }}Mbps
+            网卡: {{ $labels.device }}
+            实例: {{ $labels.instance }}
+            
+            影响：
+            - 网络响应变慢
+            - 可能影响服务质量
+            - 用户体验下降
+            
+            建议操作：
+            1. 分析网络流量
+            2. 优化数据传输
+            3. 考虑带宽升级
+          runbook_url: "https://monitoring.cjystx.top/runbooks/high-bandwidth-usage"
+
+  # 服务可用性告警
+  - name: system.availability
+    interval: 15s
+    rules:
+      # 服务器宕机
+      - alert: InstanceDown
+        expr: up == 0
+        for: 30s
+        labels:
+          severity: critical
+          component: system
+          resource: availability
+          team: sre
+        annotations:
+          summary: "服务器不可达"
+          description: |
+            服务器无法访问，可能已宕机
+            实例: {{ $labels.instance }}
+            任务: {{ $labels.job }}
+            
+            影响：
+            - 服务完全不可用
+            - 用户无法访问
+            - 可能导致数据丢失
+            
+            紧急操作：
+            1. 检查服务器状态
+            2. 重启服务器
+            3. 检查网络连接
+          runbook_url: "https://monitoring.cjystx.top/runbooks/instance-down"
+      
+      # 系统重启
+      - alert: SystemReboot
+        expr: node_time_seconds - node_boot_time_seconds < 300
+        for: 0s
+        labels:
+          severity: info
+          component: system
+          resource: availability
+          team: sre
+        annotations:
+          summary: "系统已重启"
+          description: |
+            系统在过去5分钟内重启过
+            实例: {{ $labels.instance }}
+            启动时间: {{ with query "node_boot_time_seconds" }}{{ . | first | value | humanizeTimestamp }}{{ end }}
+            
+            建议操作：
+            1. 检查重启原因
+            2. 验证服务状态
+            3. 检查系统日志
+          runbook_url: "https://monitoring.cjystx.top/runbooks/system-reboot"
+      
+      # 时钟偏移
+      - alert: ClockSkew
+        expr: abs(node_timex_offset_seconds) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+          component: system
+          resource: time
+          team: sre
+        annotations:
+          summary: "系统时钟偏移"
+          description: |
+            系统时钟偏移超过100ms，当前偏移: {{ printf "%.3f" $value }}秒
+            实例: {{ $labels.instance }}
+            
+            影响：
+            - 日志时间不准确
+            - 可能影响认证
+            - 监控数据异常
+            
+            建议操作：
+            1. 同步系统时间
+            2. 检查NTP配置
+            3. 重启NTP服务
+          runbook_url: "https://monitoring.cjystx.top/runbooks/clock-skew"
+
+  # 进程监控告警
+  - name: system.processes
+    interval: 30s
+    rules:
+      # 进程数过多
+      - alert: TooManyProcesses
+        expr: node_procs_running > 200
+        for: 3m
+        labels:
+          severity: warning
+          component: system
+          resource: processes
+          team: sre
+        annotations:
+          summary: "运行进程数过多"
+          description: |
+            运行进程数超过200，当前值: {{ $value }}
+            实例: {{ $labels.instance }}
+            
+            可能原因：
+            - 进程泄漏
+            - 系统负载过高
+            - 恶意软件
+            
+            建议操作：
+            1. 检查进程列表
+            2. 终止异常进程
+            3. 分析进程来源
+          runbook_url: "https://monitoring.cjystx.top/runbooks/too-many-processes"
+      
+      # 僵尸进程过多
+      - alert: TooManyZombieProcesses
+        expr: node_procs_state{state="Z"} > 10
+        for: 2m
+        labels:
+          severity: warning
+          component: system
+          resource: processes
+          team: sre
+        annotations:
+          summary: "僵尸进程过多"
+          description: |
+            僵尸进程数超过10，当前值: {{ $value }}
+            实例: {{ $labels.instance }}
+            
+            影响：
+            - 占用进程ID
+            - 可能导致进程创建失败
+            - 系统资源浪费
+            
+            建议操作：
+            1. 重启父进程
+            2. 检查进程管理
+            3. 修复应用程序
+          runbook_url: "https://monitoring.cjystx.top/runbooks/zombie-processes"
+      
+      # 文件描述符使用率过高
+      - alert: HighFileDescriptorUsage
+        expr: |
+          (node_filefd_allocated / node_filefd_maximum) * 100 > 80
+        for: 2m
+        labels:
+          severity: warning
+          component: system
+          resource: file_descriptors
+          team: sre
+        annotations:
+          summary: "文件描述符使用率过高"
+          description: |
+            文件描述符使用率超过80%，当前值: {{ printf "%.2f" $value }}%
+            实例: {{ $labels.instance }}
+            已分配: {{ with query "node_filefd_allocated" }}{{ . | first | value }}{{ end }}
+            最大值: {{ with query "node_filefd_maximum" }}{{ . | first | value }}{{ end }}
+            
+            影响：
+            - 无法打开新文件
+            - 网络连接可能失败
+            - 服务可能崩溃
+            
+            建议操作：
+            1. 检查打开文件的进程
+            2. 增加文件描述符限制
+            3. 修复文件泄漏
+          runbook_url: "https://monitoring.cjystx.top/runbooks/high-fd-usage"
+
+  # 硬件监控告警
+  - name: system.hardware
+    interval: 60s
+    rules:
+      # CPU温度过高
+      - alert: HighCPUTemperature
+        expr: node_hwmon_temp_celsius > 80
+        for: 2m
+        labels:
+          severity: warning
+          component: system
+          resource: temperature
+          team: sre
+        annotations:
+          summary: "CPU温度过高"
+          description: |
+            CPU温度超过80°C，当前值: {{ printf "%.1f" $value }}°C
+            传感器: {{ $labels.sensor }}
+            实例: {{ $labels.instance }}
+            
+            影响：
+            - 可能导致CPU降频
+            - 系统稳定性下降
+            - 硬件寿命缩短
+            
+            建议操作：
+            1. 检查散热系统
+            2. 清理灰尘
+            3. 检查风扇运行
+          runbook_url: "https://monitoring.cjystx.top/runbooks/high-cpu-temperature"
+      
+      # 磁盘健康状态异常
+      - alert: DiskHealthIssue
+        expr: node_smartctl_device_smart_healthy != 1
+        for: 0s
+        labels:
+          severity: critical
+          component: system
+          resource: disk_health
+          team: sre
+        annotations:
+          summary: "磁盘健康状态异常"
+          description: |
+            磁盘SMART检测发现健康问题
+            设备: {{ $labels.device }}
+            实例: {{ $labels.instance }}
+            
+            影响：
+            - 可能导致数据丢失
+            - 磁盘可能即将故障
+            - 系统稳定性风险
+            
+            紧急操作：
+            1. 立即备份重要数据
+            2. 准备更换磁盘
+            3. 监控磁盘状态
+          runbook_url: "https://monitoring.cjystx.top/runbooks/disk-health-issue"

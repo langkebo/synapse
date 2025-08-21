@@ -1,0 +1,184 @@
+# Synapse日志配置文件
+# 针对1核2GB服务器优化的日志配置
+
+version: 1
+
+formatters:
+  precise:
+    format: '%(asctime)s - %(name)s - %(lineno)d - %(levelname)s - %(request)s - %(message)s'
+  
+  json:
+    format: '{"timestamp": "%(asctime)s", "logger": "%(name)s", "level": "%(levelname)s", "message": "%(message)s", "request": "%(request)s"}'
+  
+  simple:
+    format: '%(asctime)s - %(levelname)s - %(message)s'
+
+handlers:
+  # 控制台输出
+  console:
+    class: logging.StreamHandler
+    formatter: simple
+    stream: ext://sys.stdout
+    level: INFO
+  
+  # 主日志文件
+  file:
+    class: logging.handlers.RotatingFileHandler
+    formatter: precise
+    filename: /data/homeserver.log
+    maxBytes: 104857600  # 100MB
+    backupCount: 3
+    level: INFO
+  
+  # 错误日志文件
+  error_file:
+    class: logging.handlers.RotatingFileHandler
+    formatter: precise
+    filename: /data/error.log
+    maxBytes: 52428800   # 50MB
+    backupCount: 2
+    level: ERROR
+  
+  # 好友功能专用日志
+  friends_file:
+    class: logging.handlers.RotatingFileHandler
+    formatter: json
+    filename: /data/friends.log
+    maxBytes: 52428800   # 50MB
+    backupCount: 2
+    level: INFO
+  
+  # 性能监控日志
+  performance_file:
+    class: logging.handlers.RotatingFileHandler
+    formatter: json
+    filename: /data/performance.log
+    maxBytes: 26214400   # 25MB
+    backupCount: 1
+    level: INFO
+  
+  # 安全审计日志
+  security_file:
+    class: logging.handlers.RotatingFileHandler
+    formatter: json
+    filename: /data/security.log
+    maxBytes: 52428800   # 50MB
+    backupCount: 3
+    level: WARNING
+
+loggers:
+  # Synapse核心日志
+  synapse:
+    level: INFO
+    handlers: [file, console]
+    propagate: false
+  
+  # 好友功能日志
+  synapse.rest.client.friends:
+    level: INFO
+    handlers: [friends_file, file]
+    propagate: false
+  
+  synapse.handlers.friends:
+    level: INFO
+    handlers: [friends_file, file]
+    propagate: false
+  
+  synapse.storage.databases.main.friends:
+    level: INFO
+    handlers: [friends_file, file]
+    propagate: false
+  
+  # HTTP请求日志
+  synapse.http:
+    level: INFO
+    handlers: [file]
+    propagate: false
+  
+  # 数据库日志
+  synapse.storage:
+    level: WARNING
+    handlers: [file]
+    propagate: false
+  
+  # 联邦日志
+  synapse.federation:
+    level: INFO
+    handlers: [file]
+    propagate: false
+  
+  # 认证日志
+  synapse.handlers.auth:
+    level: INFO
+    handlers: [security_file, file]
+    propagate: false
+  
+  # 注册日志
+  synapse.handlers.register:
+    level: INFO
+    handlers: [security_file, file]
+    propagate: false
+  
+  # 性能监控日志
+  synapse.metrics:
+    level: INFO
+    handlers: [performance_file]
+    propagate: false
+  
+  # 缓存日志
+  synapse.util.caches:
+    level: WARNING
+    handlers: [performance_file, file]
+    propagate: false
+  
+  # 速率限制日志
+  synapse.api.ratelimiting:
+    level: WARNING
+    handlers: [security_file, file]
+    propagate: false
+  
+  # 媒体存储日志
+  synapse.rest.media:
+    level: INFO
+    handlers: [file]
+    propagate: false
+  
+  # 推送通知日志
+  synapse.push:
+    level: INFO
+    handlers: [file]
+    propagate: false
+  
+  # 第三方库日志级别控制
+  twisted:
+    level: WARNING
+    handlers: [file]
+    propagate: false
+  
+  requests:
+    level: WARNING
+    handlers: [file]
+    propagate: false
+  
+  urllib3:
+    level: WARNING
+    handlers: [file]
+    propagate: false
+  
+  psycopg2:
+    level: WARNING
+    handlers: [file]
+    propagate: false
+  
+  PIL:
+    level: WARNING
+    handlers: [file]
+    propagate: false
+
+# 根日志配置
+root:
+  level: INFO
+  handlers: [file, console]
+
+# 禁用某些过于详细的日志
+disable_existing_loggers: false

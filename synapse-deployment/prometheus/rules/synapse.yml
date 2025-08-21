@@ -1,0 +1,234 @@
+# Synapse监控告警规则
+# 针对1核2GB服务器的告警配置
+
+groups:
+  # Synapse服务健康状态
+  - name: synapse.health
+    interval: 30s
+    rules:
+      - alert: SynapseDown
+        expr: up{job="synapse"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: synapse
+        annotations:
+          summary: "Synapse服务不可用"
+          description: "Synapse服务已停止运行超过1分钟"
+
+      - alert: SynapseHighMemoryUsage
+        expr: (synapse_process_resident_memory_bytes / (2 * 1024 * 1024 * 1024)) * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+          service: synapse
+        annotations:
+          summary: "Synapse内存使用率过高"
+          description: "Synapse内存使用率超过80%，当前值: {{ $value }}%"
+
+      - alert: SynapseCPUUsageHigh
+        expr: rate(synapse_process_cpu_seconds_total[5m]) * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+          service: synapse
+        annotations:
+          summary: "Synapse CPU使用率过高"
+          description: "Synapse CPU使用率超过80%，当前值: {{ $value }}%"
+
+  # HTTP请求监控
+  - name: synapse.http
+    interval: 30s
+    rules:
+      - alert: SynapseHighErrorRate
+        expr: |
+          (
+            sum(rate(synapse_http_requests_total{code=~"5.."}[5m])) /
+            sum(rate(synapse_http_requests_total[5m]))
+          ) * 100 > 5
+        for: 3m
+        labels:
+          severity: warning
+          service: synapse
+        annotations:
+          summary: "Synapse HTTP错误率过高"
+          description: "HTTP 5xx错误率超过5%，当前值: {{ $value }}%"
+
+      - alert: SynapseSlowRequests
+        expr: |
+          histogram_quantile(0.95, 
+            sum(rate(synapse_http_request_processing_time_seconds_bucket[5m])) by (le)
+          ) > 2
+        for: 5m
+        labels:
+          severity: warning
+          service: synapse
+        annotations:
+          summary: "Synapse请求响应时间过慢"
+          description: "95%的请求响应时间超过2秒，当前值: {{ $value }}秒"
+
+  # 数据库监控
+  - name: synapse.database
+    interval: 30s
+    rules:
+      - alert: SynapseDatabaseConnectionsHigh
+        expr: synapse_database_connections > 8
+        for: 5m
+        labels:
+          severity: warning
+          service: synapse
+        annotations:
+          summary: "Synapse数据库连接数过高"
+          description: "数据库连接数超过8个，当前值: {{ $value }}"
+
+      - alert: SynapseDatabaseSlowQueries
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(synapse_database_query_time_seconds_bucket[5m])) by (le)
+          ) > 1
+        for: 5m
+        labels:
+          severity: warning
+          service: synapse
+        annotations:
+          summary: "Synapse数据库查询过慢"
+          description: "95%的数据库查询时间超过1秒，当前值: {{ $value }}秒"
+
+  # 好友功能监控
+  - name: synapse.friends
+    interval: 15s
+    rules:
+      - alert: FriendsAPIHighErrorRate
+        expr: |
+          (
+            sum(rate(synapse_http_requests_total{servlet="FriendsServlet",code=~"5.."}[5m])) /
+            sum(rate(synapse_http_requests_total{servlet="FriendsServlet"}[5m]))
+          ) * 100 > 10
+        for: 2m
+        labels:
+          severity: warning
+          service: synapse
+          feature: friends
+        annotations:
+          summary: "好友功能API错误率过高"
+          description: "好友功能API 5xx错误率超过10%，当前值: {{ $value }}%"
+
+      - alert: FriendsRequestsBacklog
+        expr: synapse_friends_pending_requests > 100
+        for: 5m
+        labels:
+          severity: warning
+          service: synapse
+          feature: friends
+        annotations:
+          summary: "好友请求积压过多"
+          description: "待处理的好友请求超过100个，当前值: {{ $value }}"
+
+      - alert: FriendsSearchSlowResponse
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(synapse_http_request_processing_time_seconds_bucket{servlet="FriendsSearchServlet"}[5m])) by (le)
+          ) > 3
+        for: 3m
+        labels:
+          severity: warning
+          service: synapse
+          feature: friends
+        annotations:
+          summary: "好友搜索响应过慢"
+          description: "95%的好友搜索请求响应时间超过3秒，当前值: {{ $value }}秒"
+
+  # 缓存监控
+  - name: synapse.cache
+    interval: 60s
+    rules:
+      - alert: SynapseCacheHitRateLow
+        expr: |
+          (
+            sum(rate(synapse_cache_hits_total[10m])) /
+            (sum(rate(synapse_cache_hits_total[10m])) + sum(rate(synapse_cache_misses_total[10m])))
+          ) * 100 < 70
+        for: 10m
+        labels:
+          severity: warning
+          service: synapse
+        annotations:
+          summary: "Synapse缓存命中率过低"
+          description: "缓存命中率低于70%，当前值: {{ $value }}%"
+
+  # 联邦监控
+  - name: synapse.federation
+    interval: 60s
+    rules:
+      - alert: SynapseFederationLag
+        expr: synapse_federation_lag_seconds > 300
+        for: 5m
+        labels:
+          severity: warning
+          service: synapse
+        annotations:
+          summary: "Synapse联邦延迟过高"
+          description: "联邦延迟超过5分钟，当前值: {{ $value }}秒"
+
+  # 存储监控
+  - name: synapse.storage
+    interval: 60s
+    rules:
+      - alert: SynapseMediaStorageHigh
+        expr: |
+          (
+            synapse_media_storage_used_bytes / 
+            synapse_media_storage_total_bytes
+          ) * 100 > 85
+        for: 10m
+        labels:
+          severity: warning
+          service: synapse
+        annotations:
+          summary: "Synapse媒体存储使用率过高"
+          description: "媒体存储使用率超过85%，当前值: {{ $value }}%"
+
+  # 系统资源监控
+  - name: system.resources
+    interval: 30s
+    rules:
+      - alert: SystemMemoryHigh
+        expr: |
+          (
+            (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / 
+            node_memory_MemTotal_bytes
+          ) * 100 > 90
+        for: 5m
+        labels:
+          severity: critical
+          service: system
+        annotations:
+          summary: "系统内存使用率过高"
+          description: "系统内存使用率超过90%，当前值: {{ $value }}%"
+
+      - alert: SystemDiskSpaceHigh
+        expr: |
+          (
+            (node_filesystem_size_bytes{fstype!="tmpfs"} - node_filesystem_avail_bytes{fstype!="tmpfs"}) /
+            node_filesystem_size_bytes{fstype!="tmpfs"}
+          ) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+          service: system
+        annotations:
+          summary: "系统磁盘空间不足"
+          description: "磁盘使用率超过85%，当前值: {{ $value }}%，挂载点: {{ $labels.mountpoint }}"
+
+      - alert: SystemCPUHigh
+        expr: |
+          (
+            1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m]))
+          ) * 100 > 85
+        for: 10m
+        labels:
+          severity: warning
+          service: system
+        annotations:
+          summary: "系统CPU使用率过高"
+          description: "系统CPU使用率超过85%，当前值: {{ $value }}%"

@@ -1,0 +1,489 @@
+# AlertManager配置文件
+# 用于处理Prometheus告警的路由和通知
+
+global:
+  # SMTP配置 - 邮件告警
+  smtp_smarthost: 'localhost:587'
+  smtp_from: 'alerts@synapse.local'
+  smtp_auth_username: 'alerts@synapse.local'
+  smtp_auth_password: 'your_email_password'
+  smtp_require_tls: true
+  
+  # 微信企业版配置（可选）
+  wechat_api_url: 'https://qyapi.weixin.qq.com/cgi-bin/'
+  wechat_api_secret: 'your_wechat_secret'
+  wechat_api_corp_id: 'your_corp_id'
+  
+  # 钉钉配置（可选）
+  # dingtalk_api_url: 'https://oapi.dingtalk.com/robot/send'
+  
+  # 全局标签
+  external_labels:
+    cluster: 'synapse-production'
+    environment: 'production'
+    datacenter: 'local'
+
+# 告警路由配置
+route:
+  # 默认分组等待时间
+  group_wait: 10s
+  # 分组间隔时间
+  group_interval: 10s
+  # 重复告警间隔
+  repeat_interval: 1h
+  # 默认接收器
+  receiver: 'default-receiver'
+  
+  # 分组标签
+  group_by: ['alertname', 'cluster', 'service']
+  
+  # 子路由配置
+  routes:
+    # 好友功能相关告警
+    - match:
+        service: friends
+      receiver: 'friends-team'
+      group_wait: 5s
+      group_interval: 5s
+      repeat_interval: 30m
+      routes:
+        # 严重告警立即通知
+        - match:
+            severity: critical
+          receiver: 'friends-critical'
+          group_wait: 0s
+          repeat_interval: 15m
+        # 警告级别告警
+        - match:
+            severity: warning
+          receiver: 'friends-warning'
+          repeat_interval: 1h
+    
+    # 系统级别告警
+    - match:
+        service: system
+      receiver: 'system-admin'
+      group_wait: 10s
+      repeat_interval: 30m
+      routes:
+        # 系统严重告警
+        - match:
+            severity: critical
+          receiver: 'system-critical'
+          group_wait: 0s
+          repeat_interval: 10m
+    
+    # 数据库相关告警
+    - match:
+        service: database
+      receiver: 'database-team'
+      group_wait: 15s
+      repeat_interval: 45m
+      routes:
+        # 数据库严重告警
+        - match:
+            severity: critical
+          receiver: 'database-critical'
+          group_wait: 0s
+          repeat_interval: 15m
+    
+    # Synapse服务告警
+    - match:
+        service: synapse
+      receiver: 'synapse-team'
+      group_wait: 10s
+      repeat_interval: 30m
+    
+    # 静默测试告警
+    - match:
+        alertname: 'TestAlert'
+      receiver: 'null'
+    
+    # 维护期间静默所有告警
+    - match:
+        maintenance: 'true'
+      receiver: 'null'
+
+# 抑制规则 - 防止告警风暴
+inhibit_rules:
+  # 当服务完全宕机时，抑制其他相关告警
+  - source_match:
+      severity: 'critical'
+      alertname: 'ServiceDown'
+    target_match:
+      service: 'synapse'
+    equal: ['service', 'instance']
+  
+  # 当数据库宕机时，抑制应用层告警
+  - source_match:
+      severity: 'critical'
+      service: 'database'
+    target_match:
+      service: 'synapse'
+    equal: ['cluster']
+  
+  # 当系统资源严重不足时，抑制应用告警
+  - source_match:
+      severity: 'critical'
+      alertname: 'HighMemoryUsage'
+    target_match:
+      severity: 'warning'
+    equal: ['instance']
+
+# 接收器配置
+receivers:
+  # 默认接收器
+  - name: 'default-receiver'
+    email_configs:
+      - to: 'admin@synapse.local'
+        subject: '[Synapse告警] {{ .GroupLabels.alertname }}'
+        body: |
+          告警详情：
+          
+          {{ range .Alerts }}
+          告警名称: {{ .Annotations.summary }}
+          告警描述: {{ .Annotations.description }}
+          告警级别: {{ .Labels.severity }}
+          服务名称: {{ .Labels.service }}
+          实例地址: {{ .Labels.instance }}
+          开始时间: {{ .StartsAt.Format "2006-01-02 15:04:05" }}
+          
+          {{ if .Annotations.runbook_url }}
+          处理手册: {{ .Annotations.runbook_url }}
+          {{ end }}
+          
+          {{ if .Annotations.dashboard_url }}
+          监控面板: {{ .Annotations.dashboard_url }}
+          {{ end }}
+          
+          ---
+          {{ end }}
+          
+          查看详情: http://localhost:9093
+        headers:
+          Subject: '[Synapse告警] {{ .GroupLabels.alertname }}'
+  
+  # 好友功能团队
+  - name: 'friends-team'
+    email_configs:
+      - to: 'friends-team@synapse.local'
+        subject: '[好友功能告警] {{ .GroupLabels.alertname }}'
+        body: |
+          好友功能告警通知：
+          
+          {{ range .Alerts }}
+          告警名称: {{ .Annotations.summary }}
+          告警描述: {{ .Annotations.description }}
+          告警级别: {{ .Labels.severity }}
+          API端点: {{ .Labels.endpoint }}
+          实例地址: {{ .Labels.instance }}
+          开始时间: {{ .StartsAt.Format "2006-01-02 15:04:05" }}
+          
+          {{ if .Annotations.runbook_url }}
+          处理手册: {{ .Annotations.runbook_url }}
+          {{ end }}
+          
+          {{ if .Annotations.dashboard_url }}
+          好友功能面板: {{ .Annotations.dashboard_url }}
+          {{ end }}
+          
+          ---
+          {{ end }}
+    
+    # Webhook通知（可选）
+    webhook_configs:
+      - url: 'http://localhost:8080/webhook/friends'
+        send_resolved: true
+        http_config:
+          basic_auth:
+            username: 'webhook_user'
+            password: 'webhook_password'
+        title: '好友功能告警'
+        text: |
+          {{ range .Alerts }}
+          告警: {{ .Annotations.summary }}
+          级别: {{ .Labels.severity }}
+          时间: {{ .StartsAt.Format "15:04:05" }}
+          {{ end }}
+  
+  # 好友功能严重告警
+  - name: 'friends-critical'
+    email_configs:
+      - to: 'friends-team@synapse.local,admin@synapse.local'
+        subject: '[紧急] 好友功能严重告警 - {{ .GroupLabels.alertname }}'
+        body: |
+          🚨 好友功能严重告警 🚨
+          
+          {{ range .Alerts }}
+          告警名称: {{ .Annotations.summary }}
+          告警描述: {{ .Annotations.description }}
+          API端点: {{ .Labels.endpoint }}
+          实例地址: {{ .Labels.instance }}
+          开始时间: {{ .StartsAt.Format "2006-01-02 15:04:05" }}
+          
+          立即处理建议:
+          1. 检查好友服务状态
+          2. 查看数据库连接
+          3. 检查缓存服务
+          4. 查看系统资源使用情况
+          
+          {{ if .Annotations.runbook_url }}
+          紧急处理手册: {{ .Annotations.runbook_url }}
+          {{ end }}
+          
+          {{ if .Annotations.dashboard_url }}
+          监控面板: {{ .Annotations.dashboard_url }}
+          {{ end }}
+          
+          ---
+          {{ end }}
+    
+    # 短信通知（需要配置短信网关）
+    # sms_configs:
+    #   - api_url: 'https://api.sms.com/send'
+    #     to: '+86138xxxxxxxx'
+    #     message: '好友功能严重告警: {{ .GroupLabels.alertname }}'
+  
+  # 好友功能警告
+  - name: 'friends-warning'
+    email_configs:
+      - to: 'friends-team@synapse.local'
+        subject: '[警告] 好友功能告警 - {{ .GroupLabels.alertname }}'
+        body: |
+          ⚠️ 好友功能警告告警 ⚠️
+          
+          {{ range .Alerts }}
+          告警名称: {{ .Annotations.summary }}
+          告警描述: {{ .Annotations.description }}
+          API端点: {{ .Labels.endpoint }}
+          当前值: {{ .Annotations.current_value }}
+          阈值: {{ .Annotations.threshold }}
+          开始时间: {{ .StartsAt.Format "2006-01-02 15:04:05" }}
+          
+          建议检查:
+          1. 好友API响应时间
+          2. 缓存命中率
+          3. 数据库查询性能
+          
+          {{ if .Annotations.dashboard_url }}
+          监控面板: {{ .Annotations.dashboard_url }}
+          {{ end }}
+          
+          ---
+          {{ end }}
+  
+  # 系统管理员
+  - name: 'system-admin'
+    email_configs:
+      - to: 'sysadmin@synapse.local'
+        subject: '[系统告警] {{ .GroupLabels.alertname }}'
+        body: |
+          系统告警通知：
+          
+          {{ range .Alerts }}
+          告警名称: {{ .Annotations.summary }}
+          告警描述: {{ .Annotations.description }}
+          告警级别: {{ .Labels.severity }}
+          主机地址: {{ .Labels.instance }}
+          当前值: {{ .Annotations.current_value }}
+          开始时间: {{ .StartsAt.Format "2006-01-02 15:04:05" }}
+          
+          {{ if .Annotations.runbook_url }}
+          处理手册: {{ .Annotations.runbook_url }}
+          {{ end }}
+          
+          ---
+          {{ end }}
+  
+  # 系统严重告警
+  - name: 'system-critical'
+    email_configs:
+      - to: 'sysadmin@synapse.local,admin@synapse.local'
+        subject: '[紧急] 系统严重告警 - {{ .GroupLabels.alertname }}'
+        body: |
+          🚨 系统严重告警 🚨
+          
+          {{ range .Alerts }}
+          告警名称: {{ .Annotations.summary }}
+          告警描述: {{ .Annotations.description }}
+          主机地址: {{ .Labels.instance }}
+          当前值: {{ .Annotations.current_value }}
+          阈值: {{ .Annotations.threshold }}
+          开始时间: {{ .StartsAt.Format "2006-01-02 15:04:05" }}
+          
+          紧急处理步骤:
+          1. 立即检查服务器状态
+          2. 查看系统资源使用情况
+          3. 检查磁盘空间
+          4. 查看系统日志
+          
+          {{ if .Annotations.runbook_url }}
+          紧急处理手册: {{ .Annotations.runbook_url }}
+          {{ end }}
+          
+          ---
+          {{ end }}
+  
+  # 数据库团队
+  - name: 'database-team'
+    email_configs:
+      - to: 'dba@synapse.local'
+        subject: '[数据库告警] {{ .GroupLabels.alertname }}'
+        body: |
+          数据库告警通知：
+          
+          {{ range .Alerts }}
+          告警名称: {{ .Annotations.summary }}
+          告警描述: {{ .Annotations.description }}
+          数据库类型: {{ .Labels.database_type }}
+          实例地址: {{ .Labels.instance }}
+          当前值: {{ .Annotations.current_value }}
+          开始时间: {{ .StartsAt.Format "2006-01-02 15:04:05" }}
+          
+          {{ if .Annotations.runbook_url }}
+          处理手册: {{ .Annotations.runbook_url }}
+          {{ end }}
+          
+          ---
+          {{ end }}
+  
+  # 数据库严重告警
+  - name: 'database-critical'
+    email_configs:
+      - to: 'dba@synapse.local,admin@synapse.local'
+        subject: '[紧急] 数据库严重告警 - {{ .GroupLabels.alertname }}'
+        body: |
+          🚨 数据库严重告警 🚨
+          
+          {{ range .Alerts }}
+          告警名称: {{ .Annotations.summary }}
+          告警描述: {{ .Annotations.description }}
+          数据库类型: {{ .Labels.database_type }}
+          实例地址: {{ .Labels.instance }}
+          当前值: {{ .Annotations.current_value }}
+          开始时间: {{ .StartsAt.Format "2006-01-02 15:04:05" }}
+          
+          紧急处理步骤:
+          1. 检查数据库服务状态
+          2. 查看数据库连接数
+          3. 检查磁盘空间
+          4. 查看慢查询日志
+          5. 检查数据库锁情况
+          
+          {{ if .Annotations.runbook_url }}
+          紧急处理手册: {{ .Annotations.runbook_url }}
+          {{ end }}
+          
+          ---
+          {{ end }}
+  
+  # Synapse团队
+  - name: 'synapse-team'
+    email_configs:
+      - to: 'synapse-team@synapse.local'
+        subject: '[Synapse告警] {{ .GroupLabels.alertname }}'
+        body: |
+          Synapse服务告警通知：
+          
+          {{ range .Alerts }}
+          告警名称: {{ .Annotations.summary }}
+          告警描述: {{ .Annotations.description }}
+          服务组件: {{ .Labels.component }}
+          实例地址: {{ .Labels.instance }}
+          开始时间: {{ .StartsAt.Format "2006-01-02 15:04:05" }}
+          
+          {{ if .Annotations.runbook_url }}
+          处理手册: {{ .Annotations.runbook_url }}
+          {{ end }}
+          
+          {{ if .Annotations.dashboard_url }}
+          监控面板: {{ .Annotations.dashboard_url }}
+          {{ end }}
+          
+          ---
+          {{ end }}
+  
+  # 空接收器 - 用于静默告警
+  - name: 'null'
+
+# 模板配置
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
+
+# 时区设置
+timezone: 'Asia/Shanghai'
+
+# 日志配置
+log:
+  level: 'info'
+  format: 'json'
+
+# 数据保留配置
+data:
+  retention: '120h'  # 保留5天的告警数据
+
+# 集群配置（如果使用多个AlertManager实例）
+# cluster:
+#   listen-address: '0.0.0.0:9094'
+#   peers:
+#     - 'alertmanager-1:9094'
+#     - 'alertmanager-2:9094'
+
+# 静默配置
+silences:
+  # 默认静默时间
+  default_duration: '1h'
+  # 最大静默时间
+  max_duration: '24h'
+
+# 告警状态配置
+alerts:
+  # 告警解决超时时间
+  resolve_timeout: '5m'
+  # 告警分组超时时间
+  group_timeout: '10s'
+
+# 性能配置
+performance:
+  # 并发处理告警数量
+  concurrency: 10
+  # 告警处理超时时间
+  timeout: '30s'
+  # 重试次数
+  max_retries: 3
+  # 重试间隔
+  retry_interval: '30s'
+
+# 安全配置
+security:
+  # 启用TLS
+  tls:
+    enabled: false
+    cert_file: '/etc/ssl/certs/alertmanager.crt'
+    key_file: '/etc/ssl/private/alertmanager.key'
+  
+  # 基础认证
+  basic_auth:
+    enabled: false
+    username: 'admin'
+    password: 'your_password'
+
+# 中文化配置
+localization:
+  language: 'zh_CN'
+  timezone: 'Asia/Shanghai'
+  date_format: '2006-01-02 15:04:05'
+  
+  # 中文告警模板
+  templates:
+    critical: '🚨 严重告警'
+    warning: '⚠️ 警告告警'
+    info: 'ℹ️ 信息告警'
+    resolved: '✅ 告警已解决'
+
+# 调试配置
+debug:
+  enabled: false
+  log_level: 'debug'
+  metrics_enabled: true
+  profiling_enabled: false

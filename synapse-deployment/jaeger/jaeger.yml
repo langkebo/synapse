@@ -1,0 +1,418 @@
+# Jaeger 配置文件 - 分布式追踪
+# 针对Synapse Matrix服务器和好友功能优化
+
+# 收集器配置
+collector:
+  # 服务端口
+  grpc-port: 14250
+  http-port: 14268
+  
+  # 队列配置 - 针对1核2GB服务器优化
+  queue:
+    size: 2000
+    workers: 10
+  
+  # 写入超时
+  write-timeout: 5s
+  
+  # 日志配置
+  log-level: info
+  
+  # 健康检查
+  admin:
+    http:
+      host-port: ":14269"
+
+# 查询服务配置
+query:
+  # 服务端口
+  http-port: 16686
+  grpc-port: 16685
+  
+  # 基础路径
+  base-path: /
+  
+  # 静态文件
+  static-files: /go/jaeger-ui/
+  
+  # UI配置
+  ui-config: /etc/jaeger/ui.json
+  
+  # 日志配置
+  log-level: info
+  
+  # 查询超时
+  query:
+    timeout: 30s
+    max-clock-skew-adjustment: 0s
+  
+  # 健康检查
+  admin:
+    http:
+      host-port: ":16687"
+
+# 代理配置
+agent:
+  # 服务端口
+  processor:
+    jaeger-binary:
+      server-host-port: ":6832"
+      server-max-packet-size: 65000
+      server-queue-size: 1000
+      workers: 10
+    
+    jaeger-compact:
+      server-host-port: ":6831"
+      server-max-packet-size: 65000
+      server-queue-size: 1000
+      workers: 10
+  
+  # HTTP端口
+  http-server:
+    host-port: ":5778"
+  
+  # 收集器端点
+  reporter:
+    grpc:
+      host-port: "jaeger-collector:14250"
+      retry:
+        max: 3
+      timeout: 5s
+    
+    type: grpc
+  
+  # 日志配置
+  log-level: info
+
+# 存储配置
+storage:
+  type: memory
+  
+  # 内存存储配置 - 针对低配置服务器
+  memory:
+    max-traces: 10000
+    max-services: 100
+    max-operations: 1000
+  
+  # 如果使用Elasticsearch（可选）
+  # elasticsearch:
+  #   server-urls: http://elasticsearch:9200
+  #   index-prefix: jaeger
+  #   username: ""
+  #   password: ""
+  #   sniffer: false
+  #   max-span-age: 72h
+  #   num-shards: 1
+  #   num-replicas: 0
+  #   bulk:
+  #     size: 1000
+  #     workers: 1
+  #     flush-interval: 200ms
+
+# 采样配置
+sampling:
+  # 默认采样策略
+  default_strategy:
+    type: probabilistic
+    param: 0.1  # 10%采样率，降低资源消耗
+  
+  # 每服务采样策略
+  per_service_strategies:
+    - service: "synapse-homeserver"
+      type: probabilistic
+      param: 0.2  # 20%采样率
+      max_traces_per_second: 100
+    
+    - service: "synapse-friends"
+      type: probabilistic
+      param: 0.5  # 50%采样率，重点监控好友功能
+      max_traces_per_second: 50
+    
+    - service: "synapse-api"
+      type: probabilistic
+      param: 0.3  # 30%采样率
+      max_traces_per_second: 200
+  
+  # 操作级别采样
+  per_operation_strategies:
+    - operation: "POST /friends/request"
+      type: probabilistic
+      param: 1.0  # 100%采样好友请求
+    
+    - operation: "GET /friends/list"
+      type: probabilistic
+      param: 0.1  # 10%采样好友列表
+    
+    - operation: "POST /friends/accept"
+      type: probabilistic
+      param: 1.0  # 100%采样好友接受
+    
+    - operation: "DELETE /friends/*"
+      type: probabilistic
+      param: 1.0  # 100%采样好友删除
+
+# 指标配置
+metrics:
+  # 后端类型
+  backend: prometheus
+  
+  # HTTP服务器
+  http:
+    route: /metrics
+    port: 14271
+  
+  # 命名空间
+  namespace: jaeger
+  
+  # 标签
+  tags:
+    cluster: "synapse-cluster"
+    environment: "production"
+    service: "jaeger"
+
+# 日志配置
+logging:
+  level: info
+  format: json
+  
+  # 结构化日志
+  structured:
+    timestamp: "timestamp"
+    level: "level"
+    message: "message"
+    caller: "caller"
+  
+  # 日志轮转
+  rotation:
+    max_size: 100MB
+    max_age: 7
+    max_backups: 3
+    compress: true
+
+# 追踪配置
+tracing:
+  # 启用自我追踪
+  self_tracing:
+    enabled: true
+    service_name: "jaeger"
+    sampler:
+      type: const
+      param: 1
+  
+  # 追踪标签
+  tags:
+    cluster: "synapse-cluster"
+    version: "1.0.0"
+
+# 安全配置
+security:
+  # TLS配置
+  tls:
+    enabled: false
+    cert_file: ""
+    key_file: ""
+    ca_file: ""
+    client_ca_file: ""
+  
+  # 认证配置
+  auth:
+    enabled: false
+    type: "basic"
+    username: ""
+    password: ""
+  
+  # CORS配置
+  cors:
+    allowed_origins: ["*"]
+    allowed_methods: ["GET", "POST", "PUT", "DELETE"]
+    allowed_headers: ["*"]
+
+# 性能优化
+performance:
+  # 内存限制
+  memory:
+    max_heap_size: 512MB
+    gc_target_percentage: 75
+  
+  # 并发控制
+  concurrency:
+    max_workers: 20
+    queue_size: 1000
+  
+  # 缓存配置
+  cache:
+    ttl: 1h
+    max_size: 10000
+  
+  # 批处理
+  batch:
+    size: 100
+    timeout: 1s
+
+# 健康检查
+health_check:
+  # HTTP健康检查
+  http:
+    enabled: true
+    port: 14269
+    path: "/"
+  
+  # 存活检查
+  liveness:
+    enabled: true
+    initial_delay: 30s
+    period: 10s
+    timeout: 5s
+    failure_threshold: 3
+  
+  # 就绪检查
+  readiness:
+    enabled: true
+    initial_delay: 5s
+    period: 5s
+    timeout: 3s
+    failure_threshold: 3
+
+# 监控配置
+monitoring:
+  # Prometheus指标
+  prometheus:
+    enabled: true
+    port: 14271
+    path: "/metrics"
+  
+  # 自定义指标
+  custom_metrics:
+    - name: jaeger_spans_received_total
+      help: "Total number of spans received"
+      type: counter
+    
+    - name: jaeger_spans_processed_total
+      help: "Total number of spans processed"
+      type: counter
+    
+    - name: jaeger_traces_received_total
+      help: "Total number of traces received"
+      type: counter
+    
+    - name: jaeger_query_duration_seconds
+      help: "Query duration in seconds"
+      type: histogram
+      buckets: [0.1, 0.5, 1.0, 2.5, 5.0, 10.0]
+    
+    - name: jaeger_storage_latency_seconds
+      help: "Storage operation latency"
+      type: histogram
+      buckets: [0.01, 0.05, 0.1, 0.5, 1.0]
+
+# UI配置
+ui:
+  # 基础配置
+  config:
+    # 依赖关系
+    dependencies:
+      dagMaxNumServices: 200
+      menuEnabled: true
+    
+    # 搜索配置
+    search:
+      maxLookback:
+        label: "2 Days"
+        value: "2d"
+      maxLimit: 1500
+    
+    # 追踪配置
+    tracking:
+      gaID: ""
+      trackErrors: true
+    
+    # 菜单配置
+    menu:
+      - label: "关于"
+        url: "https://www.jaegertracing.io/"
+        newWindow: true
+      
+      - label: "文档"
+        url: "https://www.jaegertracing.io/docs/"
+        newWindow: true
+    
+    # 链接模式
+    linkPatterns:
+      - type: "logs"
+        key: "logsLink"
+        url: "http://grafana:3000/explore?left=%5B%22now-1h%22,%22now%22,%22Loki%22,%7B%22expr%22:%22%7Bservice%3D%5C%22#{service}%5C%22%7D%22%7D%5D"
+        text: "查看日志"
+      
+      - type: "metrics"
+        key: "metricsLink"
+        url: "http://grafana:3000/d/synapse-overview/synapse-overview?var-service=#{service}"
+        text: "查看指标"
+
+# 中文化配置
+localization:
+  # 时区
+  timezone: "Asia/Shanghai"
+  
+  # 语言
+  language: "zh-CN"
+  
+  # 日期格式
+  date_format: "2006-01-02 15:04:05"
+  
+  # 数字格式
+  number_format:
+    decimal_separator: "."
+    thousands_separator: ","
+
+# 集群配置
+cluster:
+  # 节点配置
+  node:
+    id: "jaeger-01"
+    address: "127.0.0.1"
+  
+  # 发现配置
+  discovery:
+    type: "static"
+    static:
+      hosts: ["jaeger:14250"]
+
+# 扩展配置
+extensions:
+  # 插件配置
+  plugins:
+    enabled: []
+  
+  # 钩子配置
+  hooks:
+    pre_process: []
+    post_process: []
+
+# 实验性功能
+experimental:
+  # 启用新功能
+  enable_new_features: false
+  
+  # 性能优化
+  performance_optimizations: true
+  
+  # 内存优化
+  memory_optimizations: true
+
+# 调试配置
+debug:
+  # 启用调试
+  enabled: false
+  
+  # 详细日志
+  verbose: false
+  
+  # 性能分析
+  profiling:
+    enabled: false
+    port: 6060
+  
+  # 追踪调试
+  trace_debug:
+    enabled: false
+    sample_rate: 0.01

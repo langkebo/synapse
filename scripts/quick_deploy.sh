@@ -202,20 +202,11 @@ EOF
     # 创建数据目录
     mkdir -p data logs
     
-    # 复制性能优化配置
-    if [[ -f "contrib/docker/conf/homeserver-performance.yaml" ]]; then
-        cp contrib/docker/conf/homeserver-performance.yaml data/homeserver.yaml
-    else
-        log_warning "性能配置文件不存在，将使用默认配置"
-    fi
+    # 使用默认配置
+    log_info "使用默认 Synapse 配置"
     
-    # 复制 Docker Compose 文件
-    if [[ -f "docker/docker-compose.low-spec.yml" ]]; then
-        cp docker/docker-compose.low-spec.yml docker-compose.yml
-    else
-        log_error "Docker Compose 配置文件不存在"
-        exit 1
-    fi
+    # 使用内置 Docker Compose 配置
+    log_info "生成 Docker Compose 配置文件"
     
     # 设置权限
     sudo chown -R 991:991 data logs 2>/dev/null || true

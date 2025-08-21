@@ -125,7 +125,7 @@ class FollowerTypingHandler:
 
     @wrap_as_background_process("typing._handle_timeouts")
     async def _handle_timeouts(self) -> None:
-        logger.debug("Checking for typing timeouts")
+        # 检查输入超时
 
         now = self.clock.time_msec()
 
@@ -183,7 +183,7 @@ class FollowerTypingHandler:
             )
             for domain in hosts:
                 if not self.is_mine_server_name(domain):
-                    logger.debug("sending typing update to %s", domain)
+                    # 发送输入更新到域
                     self.federation.build_and_send_edu(
                         destination=domain,
                         edu_type=EduTypes.TYPING,
@@ -324,7 +324,7 @@ class TypingWriterHandler(FollowerTypingHandler):
 
         await self.auth.check_user_in_room(room_id, requester)
 
-        logger.debug("%s has started typing in %s", target_user_id, room_id)
+        # 用户开始输入
 
         member = RoomMember(room_id=room_id, user_id=target_user_id)
 
@@ -359,7 +359,7 @@ class TypingWriterHandler(FollowerTypingHandler):
 
         await self.auth.check_user_in_room(room_id, requester)
 
-        logger.debug("%s has stopped typing in %s", target_user_id, room_id)
+        # 用户停止输入
 
         member = RoomMember(room_id=room_id, user_id=target_user_id)
 

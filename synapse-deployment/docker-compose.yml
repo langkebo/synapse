@@ -1,0 +1,365 @@
+version: '3.8'
+
+# Synapse Matrix服务器 - 针对1核2GB服务器优化的Docker部署
+# 包含好友功能扩展和完整的监控栈
+
+services:
+  # PostgreSQL数据库服务
+  postgres:
+    image: postgres:15-alpine
+    container_name: synapse-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: synapse
+      POSTGRES_USER: synapse
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-synapse_secure_password_2024}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./postgres/friends_schema.sql:/docker-entrypoint-initdb.d/02-friends_schema.sql:ro
+    ports:
+      - "5432:5432"
+    command: [
+      "postgres",
+      "-c", "config_file=/etc/postgresql/postgresql.conf"
+    ]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U synapse -d synapse"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - synapse-network
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+          cpus: '0.4'
+        reservations:
+          memory: 192M
+          cpus: '0.15'
+
+  # Redis缓存服务
+  redis:
+    image: redis:7-alpine
+    container_name: synapse-redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - synapse-network
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+          cpus: '0.25'
+        reservations:
+          memory: 96M
+          cpus: '0.08'
+
+  # Synapse Matrix服务器主服务
+  synapse:
+    build:
+      context: ..
+      dockerfile: synapse-deployment/Dockerfile
+    container_name: synapse-main
+    restart: unless-stopped
+    environment:
+      SYNAPSE_SERVER_NAME: ${SYNAPSE_SERVER_NAME:-matrix.cjystx.top}
+      SYNAPSE_REPORT_STATS: "no"
+      SYNAPSE_CONFIG_PATH: "/data/homeserver.yaml"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: synapse
+      POSTGRES_USER: synapse
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-synapse_secure_password_2024}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_secure_password_2024}
+      # 好友功能环境变量
+      FRIENDS_ENABLED: "true"
+      FRIENDS_MAX_FRIENDS: "500"
+      FRIENDS_REQUEST_TIMEOUT: "604800"  # 7天
+      # 性能优化
+      SYNAPSE_CACHE_FACTOR: "0.5"
+      SYNAPSE_EVENT_CACHE_SIZE: "5K"
+    volumes:
+      - synapse_data:/data
+      - synapse_media:/data/media_store
+      - ./synapse/homeserver.yaml:/data/homeserver.yaml:ro
+      - ./synapse/friends_config.yaml:/data/friends_config.yaml:ro
+      - ./synapse/log.yaml:/data/log.yaml:ro
+    ports:
+      - "8008:8008"  # 客户端API
+      - "8448:8448"  # 联邦API
+      - "9090:9090"  # 监控指标
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8008/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    networks:
+      - synapse-network
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+          cpus: '0.6'
+        reservations:
+          memory: 384M
+          cpus: '0.3'
+
+  # Element Web客户端
+  element:
+    image: vectorim/element-web:latest
+    container_name: synapse-element
+    restart: unless-stopped
+    volumes:
+      - ./element/config.json:/app/config.json:ro
+    ports:
+      - "8080:80"
+    networks:
+      - synapse-network
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: '0.1'
+        reservations:
+          memory: 32M
+          cpus: '0.05'
+
+  # Nginx反向代理
+  nginx:
+    image: nginx:alpine
+    container_name: synapse-nginx
+    restart: unless-stopped
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+      - nginx_logs:/var/log/nginx
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8448:8448"  # 联邦端口
+    depends_on:
+      - synapse
+      - element
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - synapse-network
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.2'
+        reservations:
+          memory: 64M
+          cpus: '0.1'
+
+  # Prometheus监控服务
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: synapse-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9091:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=3d'
+      - '--storage.tsdb.retention.size=512MB'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+      - '--query.max-concurrency=2'
+      - '--query.max-samples=1000000'
+    networks:
+      - synapse-network
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+          cpus: '0.2'
+        reservations:
+          memory: 96M
+          cpus: '0.08'
+
+  # Grafana可视化服务
+  grafana:
+    image: grafana/grafana:latest
+    container_name: synapse-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin_secure_password_2024}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_INSTALL_PLUGINS: "grafana-piechart-panel"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/grafana.ini:/etc/grafana/grafana.ini:ro
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - synapse-network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.3'
+        reservations:
+          memory: 128M
+          cpus: '0.1'
+
+  # Node Exporter系统监控
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: synapse-node-exporter
+    restart: unless-stopped
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+      - '--collector.systemd'
+      - '--collector.processes'
+    ports:
+      - "9100:9100"
+    networks:
+      - synapse-network
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: '0.1'
+        reservations:
+          memory: 32M
+          cpus: '0.05'
+
+  # PostgreSQL Exporter数据库监控
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: synapse-postgres-exporter
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_NAME: "postgresql://synapse:${POSTGRES_PASSWORD:-synapse_secure_password_2024}@postgres:5432/synapse?sslmode=disable"
+    ports:
+      - "9187:9187"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - synapse-network
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: '0.1'
+        reservations:
+          memory: 32M
+          cpus: '0.05'
+
+  # Redis Exporter缓存监控
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: synapse-redis-exporter
+    restart: unless-stopped
+    environment:
+      REDIS_ADDR: "redis://redis:6379"
+      REDIS_PASSWORD: "${REDIS_PASSWORD:-redis_secure_password_2024}"
+    ports:
+      - "9121:9121"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - synapse-network
+    deploy:
+      resources:
+        limits:
+          memory: 32M
+          cpus: '0.05'
+        reservations:
+          memory: 16M
+          cpus: '0.02'
+
+  # Nginx Exporter Web服务器监控
+  nginx-exporter:
+    image: nginx/nginx-prometheus-exporter:latest
+    container_name: synapse-nginx-exporter
+    restart: unless-stopped
+    command:
+      - '-nginx.scrape-uri=http://nginx:8080/nginx_status'
+    ports:
+      - "9113:9113"
+    depends_on:
+      - nginx
+    networks:
+      - synapse-network
+    deploy:
+      resources:
+        limits:
+          memory: 32M
+          cpus: '0.05'
+        reservations:
+          memory: 16M
+          cpus: '0.02'
+
+# 网络配置
+networks:
+  synapse-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+# 数据卷配置
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  synapse_data:
+    driver: local
+  synapse_media:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+  nginx_logs:
+    driver: local

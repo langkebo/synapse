@@ -1,0 +1,457 @@
+# Prometheus 监控配置文件
+# 针对1核2GB服务器优化的监控配置，包含好友功能专门监控
+
+global:
+  # 数据采集间隔
+  scrape_interval: 30s
+  
+  # 规则评估间隔
+  evaluation_interval: 30s
+  
+  # 外部标签
+  external_labels:
+    monitor: 'synapse-monitor'
+    environment: 'production'
+    server_type: '1core-2gb'
+    deployment: 'docker'
+    region: 'china'
+
+# 规则文件
+rule_files:
+  - "/etc/prometheus/rules/*.yml"
+  - "/etc/prometheus/rules/friends/*.yml"
+  - "/etc/prometheus/rules/alerts/*.yml"
+
+# 告警管理器配置
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+      timeout: 10s
+      api_version: v2
+
+# 数据采集配置
+scrape_configs:
+  # Prometheus 自身监控
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+    scrape_interval: 30s
+    metrics_path: /metrics
+    
+  # Synapse 主服务监控
+  - job_name: 'synapse'
+    static_configs:
+      - targets: ['synapse:8008']
+    scrape_interval: 15s
+    metrics_path: /_synapse/metrics
+    scrape_timeout: 10s
+    honor_labels: true
+    params:
+      format: ['prometheus']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: synapse:8008
+    metric_relabel_configs:
+      # 重命名指标以便于识别
+      - source_labels: [__name__]
+        regex: 'synapse_(.*)'
+        target_label: __name__
+        replacement: 'synapse_${1}'
+      # 添加服务标签
+      - target_label: service
+        replacement: 'synapse'
+      # 添加好友功能标签
+      - source_labels: [__name__]
+        regex: '.*friends.*'
+        target_label: feature
+        replacement: 'friends'
+    
+  # 好友功能专门监控
+  - job_name: 'synapse-friends'
+    static_configs:
+      - targets: ['synapse:8008']
+    scrape_interval: 10s
+    metrics_path: /_synapse/metrics
+    params:
+      format: ['prometheus']
+    metric_relabel_configs:
+      # 只保留好友相关指标
+      - source_labels: [__name__]
+        regex: '.*friends.*|.*friend.*'
+        action: keep
+      - target_label: component
+        replacement: 'friends'
+    
+  # PostgreSQL 数据库监控
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    relabel_configs:
+      - target_label: service
+        replacement: 'postgresql'
+    
+  # Redis 缓存监控
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    relabel_configs:
+      - target_label: service
+        replacement: 'redis'
+    
+  # 系统监控 (Node Exporter)
+  - job_name: 'node'
+    static_configs:
+      - targets: ['node-exporter:9100']
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    relabel_configs:
+      - target_label: service
+        replacement: 'system'
+    
+  # Nginx 反向代理监控
+  - job_name: 'nginx'
+    static_configs:
+      - targets: ['nginx-exporter:9113']
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    relabel_configs:
+      - target_label: service
+        replacement: 'nginx'
+    
+  # Docker 容器监控
+  - job_name: 'docker'
+    static_configs:
+      - targets: ['cadvisor:8080']
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    metrics_path: /metrics
+    relabel_configs:
+      - target_label: service
+        replacement: 'docker'
+    
+  # Grafana 监控
+  - job_name: 'grafana'
+    static_configs:
+      - targets: ['grafana:3000']
+    scrape_interval: 60s
+    metrics_path: /metrics
+    relabel_configs:
+      - target_label: service
+        replacement: 'grafana'
+    
+  # 自定义应用监控
+  - job_name: 'custom-metrics'
+    static_configs:
+      - targets: ['synapse:8009']  # 自定义指标端口
+    scrape_interval: 30s
+    metrics_path: /custom-metrics
+    honor_labels: true
+    
+  # 健康检查监控
+  - job_name: 'health-checks'
+    static_configs:
+      - targets: 
+        - 'synapse:8008'
+        - 'postgres:5432'
+        - 'redis:6379'
+        - 'nginx:80'
+    scrape_interval: 15s
+    metrics_path: /health
+    scheme: http
+    
+  # 联邦监控
+  - job_name: 'federation'
+    static_configs:
+      - targets: ['synapse:8008']
+    scrape_interval: 60s
+    metrics_path: /_synapse/metrics
+    params:
+      format: ['prometheus']
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: '.*federation.*'
+        action: keep
+      - target_label: component
+        replacement: 'federation'
+
+# 存储配置
+storage:
+  tsdb:
+    # 数据保留时间（针对1核2GB服务器优化）
+    retention.time: 15d
+    
+    # 数据保留大小
+    retention.size: 1GB
+    
+    # 压缩配置
+    min-block-duration: 2h
+    max-block-duration: 25h
+    
+    # WAL配置
+    wal-compression: true
+    
+    # 内存优化
+    head-chunks-write-queue-size: 1000
+    
+    # 并发限制
+    max-concurrent-compactions: 1
+
+# 查询配置
+query:
+  # 查询超时
+  timeout: 2m
+  
+  # 最大并发查询
+  max-concurrency: 10
+  
+  # 最大样本数
+  max-samples: 50000000
+  
+  # 查询日志
+  log-queries-longer-than: 10s
+
+# 远程写入配置（可选）
+remote_write:
+  - url: "http://remote-storage:9201/write"
+    queue_config:
+      max_samples_per_send: 1000
+      max_shards: 5
+      capacity: 2500
+    write_relabel_configs:
+      - source_labels: [__name__]
+        regex: 'synapse_.*|friends_.*|system_.*'
+        action: keep
+
+# 远程读取配置（可选）
+remote_read:
+  - url: "http://remote-storage:9201/read"
+    read_recent: true
+
+# 服务发现配置
+service_discovery_configs:
+  # Docker 服务发现
+  - docker_sd_configs:
+    - host: unix:///var/run/docker.sock
+      port: 9090
+      filters:
+        - name: label
+          values: ["monitoring=true"]
+      refresh_interval: 30s
+
+# 性能优化配置
+performance:
+  # 内存限制
+  memory_limit: 512MB
+  
+  # CPU限制
+  cpu_limit: 0.5
+  
+  # 并发限制
+  max_concurrent_queries: 5
+  
+  # 缓存配置
+  query_result_cache_size: 100MB
+  
+  # 压缩级别
+  compression_level: 6
+
+# 告警规则配置
+alerting_rules:
+  # 好友功能告警
+  friends_alerts:
+    # 好友请求失败率过高
+    - alert: FriendsRequestFailureRateHigh
+      expr: rate(synapse_friends_request_failures_total[5m]) > 0.1
+      for: 2m
+      labels:
+        severity: warning
+        component: friends
+      annotations:
+        summary: "好友请求失败率过高"
+        description: "好友请求失败率超过10%，当前值: {{ $value }}"
+    
+    # 好友API响应时间过长
+    - alert: FriendsAPIResponseTimeSlow
+      expr: histogram_quantile(0.95, rate(synapse_friends_request_duration_seconds_bucket[5m])) > 2
+      for: 3m
+      labels:
+        severity: warning
+        component: friends
+      annotations:
+        summary: "好友API响应时间过长"
+        description: "95%的好友API请求响应时间超过2秒，当前值: {{ $value }}秒"
+  
+  # 系统资源告警
+  system_alerts:
+    # 内存使用率过高
+    - alert: HighMemoryUsage
+      expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
+      for: 2m
+      labels:
+        severity: warning
+        component: system
+      annotations:
+        summary: "内存使用率过高"
+        description: "内存使用率超过85%，当前值: {{ $value }}%"
+    
+    # CPU使用率过高
+    - alert: HighCPUUsage
+      expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+      for: 3m
+      labels:
+        severity: warning
+        component: system
+      annotations:
+        summary: "CPU使用率过高"
+        description: "CPU使用率超过80%，当前值: {{ $value }}%"
+    
+    # 磁盘空间不足
+    - alert: DiskSpaceLow
+      expr: (1 - (node_filesystem_avail_bytes{fstype!="tmpfs"} / node_filesystem_size_bytes{fstype!="tmpfs"})) * 100 > 85
+      for: 1m
+      labels:
+        severity: critical
+        component: system
+      annotations:
+        summary: "磁盘空间不足"
+        description: "磁盘使用率超过85%，当前值: {{ $value }}%"
+  
+  # 数据库告警
+  database_alerts:
+    # 数据库连接数过多
+    - alert: PostgreSQLTooManyConnections
+      expr: pg_stat_database_numbackends / pg_settings_max_connections * 100 > 80
+      for: 2m
+      labels:
+        severity: warning
+        component: database
+      annotations:
+        summary: "PostgreSQL连接数过多"
+        description: "数据库连接数超过80%，当前值: {{ $value }}%"
+    
+    # 数据库查询时间过长
+    - alert: PostgreSQLSlowQueries
+      expr: pg_stat_activity_max_tx_duration > 300
+      for: 1m
+      labels:
+        severity: warning
+        component: database
+      annotations:
+        summary: "数据库查询时间过长"
+        description: "存在运行超过5分钟的查询，当前最长: {{ $value }}秒"
+  
+  # Redis告警
+  redis_alerts:
+    # Redis内存使用率过高
+    - alert: RedisMemoryUsageHigh
+      expr: redis_memory_used_bytes / redis_memory_max_bytes * 100 > 85
+      for: 2m
+      labels:
+        severity: warning
+        component: redis
+      annotations:
+        summary: "Redis内存使用率过高"
+        description: "Redis内存使用率超过85%，当前值: {{ $value }}%"
+    
+    # Redis连接数过多
+    - alert: RedisTooManyConnections
+      expr: redis_connected_clients > 100
+      for: 2m
+      labels:
+        severity: warning
+        component: redis
+      annotations:
+        summary: "Redis连接数过多"
+        description: "Redis连接数超过100，当前值: {{ $value }}"
+
+# 记录规则配置
+recording_rules:
+  # 好友功能指标
+  friends_metrics:
+    # 好友请求成功率
+    - record: synapse:friends_request_success_rate
+      expr: rate(synapse_friends_requests_total{status="success"}[5m]) / rate(synapse_friends_requests_total[5m])
+    
+    # 好友API平均响应时间
+    - record: synapse:friends_api_response_time_avg
+      expr: rate(synapse_friends_request_duration_seconds_sum[5m]) / rate(synapse_friends_request_duration_seconds_count[5m])
+    
+    # 活跃好友关系数
+    - record: synapse:active_friendships_count
+      expr: synapse_friends_active_relationships_total
+  
+  # 系统指标
+  system_metrics:
+    # 系统内存使用率
+    - record: system:memory_usage_percent
+      expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100
+    
+    # 系统CPU使用率
+    - record: system:cpu_usage_percent
+      expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)
+    
+    # 系统磁盘使用率
+    - record: system:disk_usage_percent
+      expr: (1 - (node_filesystem_avail_bytes{fstype!="tmpfs"} / node_filesystem_size_bytes{fstype!="tmpfs"})) * 100
+
+# 中文化配置
+localization:
+  # 启用中文标签
+  chinese_labels: true
+  
+  # 时区设置
+  timezone: 'Asia/Shanghai'
+  
+  # 中文告警模板
+  chinese_alert_templates: true
+
+# 调试配置
+debug:
+  # 启用调试日志
+  enable_debug_logging: false
+  
+  # 查询日志
+  log_queries: true
+  
+  # 慢查询阈值
+  slow_query_threshold: 5s
+
+# 安全配置
+security:
+  # 启用HTTPS
+  enable_https: false
+  
+  # 认证配置
+  basic_auth:
+    username: admin
+    password_file: /etc/prometheus/auth/password
+  
+  # IP白名单
+  allowed_ips:
+    - 127.0.0.1
+    - 172.16.0.0/12
+    - 192.168.0.0/16
+
+# 备份配置
+backup:
+  # 启用自动备份
+  auto_backup: true
+  
+  # 备份间隔
+  backup_interval: 24h
+  
+  # 备份保留天数
+  backup_retention_days: 7
+  
+  # 备份路径
+  backup_path: /data/prometheus/backups

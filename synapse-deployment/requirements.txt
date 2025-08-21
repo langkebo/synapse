@@ -1,0 +1,41 @@
+# Synapse核心依赖
+matrix-synapse[all]>=1.95.0
+
+# 数据库驱动
+psycopg2-binary>=2.9.7
+redis>=4.6.0
+
+# 网络和HTTP
+treq>=22.2.0
+twisted[tls]>=22.10.0
+requests>=2.31.0
+
+# 加密和安全
+cryptography>=41.0.0
+pyjwt>=2.8.0
+bcrypt>=4.0.0
+pyopenssl>=23.2.0
+
+# 数据处理
+jsonschema>=4.19.0
+pydantic>=2.3.0
+pyyaml>=6.0.1
+jinja2>=3.1.2
+
+# 监控和日志
+prometheus-client>=0.17.0
+structlog>=23.1.0
+
+# 图像处理
+pillow>=10.0.0
+
+# 好友功能扩展依赖
+sqlalchemy>=2.0.0
+alembic>=1.12.0
+
+# 开发和测试依赖（可选）
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+black>=23.7.0
+ruff>=0.0.284
+mypy>=1.5.0

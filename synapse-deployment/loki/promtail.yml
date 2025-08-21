@@ -1,0 +1,471 @@
+# Promtail 配置文件 - 日志收集和转发
+# 针对Synapse Matrix服务器和好友功能优化
+
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+  log_level: info
+  log_format: json
+  
+  # 健康检查
+  health_check_target: true
+  
+  # 服务器配置
+  http_server_read_timeout: 30s
+  http_server_write_timeout: 30s
+  http_server_idle_timeout: 120s
+
+# 客户端配置
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+    tenant_id: "synapse"
+    
+    # 批处理配置 - 针对低配置服务器优化
+    batchwait: 1s
+    batchsize: 1048576  # 1MB
+    
+    # 重试配置
+    backoff_config:
+      min_period: 500ms
+      max_period: 5m
+      max_retries: 10
+    
+    # 超时配置
+    timeout: 10s
+    
+    # 外部标签
+    external_labels:
+      cluster: "synapse-cluster"
+      environment: "production"
+      service: "matrix-synapse"
+      region: "local"
+
+# 位置配置
+positions:
+  filename: /tmp/positions.yaml
+  sync_period: 10s
+  ignore_invalid_yaml: false
+
+# 目标配置
+target_config:
+  sync_period: 10s
+
+# 抓取配置
+scrape_configs:
+  # Synapse 主服务日志
+  - job_name: synapse-homeserver
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: synapse-homeserver
+          service: synapse
+          component: homeserver
+          __path__: /data/logs/homeserver.log*
+    
+    pipeline_stages:
+      # 解析时间戳
+      - timestamp:
+          source: timestamp
+          format: "2006-01-02 15:04:05,000"
+          location: "Asia/Shanghai"
+      
+      # 解析日志级别
+      - regex:
+          expression: '^(?P<timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) - (?P<logger>\S+) - (?P<level>\w+) - (?P<message>.*)$'
+      
+      # 添加标签
+      - labels:
+          level:
+          logger:
+      
+      # 过滤敏感信息
+      - replace:
+          expression: '(access_token|password|secret)=[^\s]+'
+          replace: '${1}=***'
+      
+      # 多行日志处理
+      - multiline:
+          firstline: '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}'
+          max_wait_time: 3s
+      
+      # 输出格式化
+      - output:
+          source: message
+
+  # Synapse 好友功能日志
+  - job_name: synapse-friends
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: synapse-friends
+          service: synapse
+          component: friends
+          __path__: /data/logs/friends.log*
+    
+    pipeline_stages:
+      # 时间戳解析
+      - timestamp:
+          source: timestamp
+          format: "2006-01-02 15:04:05,000"
+          location: "Asia/Shanghai"
+      
+      # JSON日志解析
+      - json:
+          expressions:
+            level: level
+            logger: logger
+            message: message
+            user_id: user_id
+            friend_id: friend_id
+            action: action
+            duration: duration
+            error: error
+      
+      # 标签添加
+      - labels:
+          level:
+          logger:
+          action:
+      
+      # 指标提取
+      - metrics:
+          friends_requests_total:
+            type: Counter
+            description: "Total number of friend requests"
+            source: action
+            config:
+              match_all: true
+              count_entry_bytes: false
+          
+          friends_response_time:
+            type: Histogram
+            description: "Friend API response time"
+            source: duration
+            config:
+              buckets: [0.1, 0.5, 1.0, 2.5, 5.0, 10.0]
+      
+      # 错误处理
+      - match:
+          selector: '{level="ERROR"}'
+          stages:
+            - metrics:
+                friends_errors_total:
+                  type: Counter
+                  description: "Total number of friend errors"
+                  config:
+                    match_all: true
+
+  # Synapse 访问日志
+  - job_name: synapse-access
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: synapse-access
+          service: synapse
+          component: access
+          __path__: /data/logs/access.log*
+    
+    pipeline_stages:
+      # Nginx访问日志格式解析
+      - regex:
+          expression: '^(?P<remote_addr>\S+) - (?P<remote_user>\S+) \[(?P<time_local>[^\]]+)\] "(?P<method>\S+) (?P<request_uri>\S+) (?P<server_protocol>\S+)" (?P<status>\d+) (?P<body_bytes_sent>\d+) "(?P<http_referer>[^"]*)" "(?P<http_user_agent>[^"]*)" (?P<request_time>\S+)'
+      
+      # 时间戳解析
+      - timestamp:
+          source: time_local
+          format: "02/Jan/2006:15:04:05 -0700"
+      
+      # 标签添加
+      - labels:
+          method:
+          status:
+          remote_addr:
+      
+      # 指标提取
+      - metrics:
+          http_requests_total:
+            type: Counter
+            description: "Total HTTP requests"
+            source: status
+            config:
+              match_all: true
+          
+          http_request_duration_seconds:
+            type: Histogram
+            description: "HTTP request duration"
+            source: request_time
+            config:
+              buckets: [0.1, 0.5, 1.0, 2.5, 5.0, 10.0]
+      
+      # 过滤静态资源
+      - drop:
+          expression: '.*\.(css|js|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot).*'
+
+  # PostgreSQL 日志
+  - job_name: postgresql
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: postgresql
+          service: database
+          component: postgresql
+          __path__: /var/log/postgresql/postgresql-*.log
+    
+    pipeline_stages:
+      # PostgreSQL日志格式解析
+      - regex:
+          expression: '^(?P<timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} \w+) \[(?P<pid>\d+)\] (?P<level>\w+): (?P<message>.*)$'
+      
+      # 时间戳解析
+      - timestamp:
+          source: timestamp
+          format: "2006-01-02 15:04:05.000 MST"
+      
+      # 标签添加
+      - labels:
+          level:
+          pid:
+      
+      # 慢查询检测
+      - match:
+          selector: '{level="LOG"}'
+          stages:
+            - regex:
+                expression: 'duration: (?P<duration>\d+\.\d+) ms'
+            - metrics:
+                postgresql_slow_queries_total:
+                  type: Counter
+                  description: "Total slow queries"
+                  config:
+                    match_all: true
+
+  # Redis 日志
+  - job_name: redis
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: redis
+          service: database
+          component: redis
+          __path__: /var/log/redis/redis-server.log
+    
+    pipeline_stages:
+      # Redis日志格式解析
+      - regex:
+          expression: '^(?P<pid>\d+):[A-Z] (?P<timestamp>\d{2} \w{3} \d{4} \d{2}:\d{2}:\d{2}\.\d{3}) (?P<level>[*#-]) (?P<message>.*)$'
+      
+      # 时间戳解析
+      - timestamp:
+          source: timestamp
+          format: "02 Jan 2006 15:04:05.000"
+      
+      # 标签添加
+      - labels:
+          level:
+          pid:
+      
+      # 错误检测
+      - match:
+          selector: '{level="#"}'
+          stages:
+            - metrics:
+                redis_errors_total:
+                  type: Counter
+                  description: "Total Redis errors"
+                  config:
+                    match_all: true
+
+  # 系统日志
+  - job_name: syslog
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: syslog
+          service: system
+          component: syslog
+          __path__: /var/log/syslog
+    
+    pipeline_stages:
+      # Syslog格式解析
+      - regex:
+          expression: '^(?P<timestamp>\w{3} \d{1,2} \d{2}:\d{2}:\d{2}) (?P<hostname>\S+) (?P<program>\S+)(\[(?P<pid>\d+)\])?: (?P<message>.*)$'
+      
+      # 时间戳解析
+      - timestamp:
+          source: timestamp
+          format: "Jan 2 15:04:05"
+          location: "Asia/Shanghai"
+      
+      # 标签添加
+      - labels:
+          hostname:
+          program:
+          pid:
+      
+      # 过滤系统噪音
+      - drop:
+          expression: '.*(CRON|systemd|kernel).*'
+
+  # Docker 容器日志
+  - job_name: docker
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+        filters:
+          - name: label
+            values: ["logging=promtail"]
+    
+    relabel_configs:
+      # 容器名称
+      - source_labels: [__meta_docker_container_name]
+        target_label: container_name
+        regex: '/(.*)'  
+        replacement: '${1}'
+      
+      # 容器ID
+      - source_labels: [__meta_docker_container_id]
+        target_label: container_id
+        regex: '(.{12}).*'
+        replacement: '${1}'
+      
+      # 镜像名称
+      - source_labels: [__meta_docker_container_image]
+        target_label: image
+      
+      # 日志路径
+      - source_labels: [__meta_docker_container_log_stream]
+        target_label: stream
+    
+    pipeline_stages:
+      # Docker JSON日志解析
+      - json:
+          expressions:
+            output: log
+            stream: stream
+            timestamp: time
+      
+      # 时间戳解析
+      - timestamp:
+          source: timestamp
+          format: RFC3339Nano
+      
+      # 输出处理
+      - output:
+          source: output
+      
+      # 标签添加
+      - labels:
+          stream:
+
+# 限制配置
+limits_config:
+  # 读取限制
+  readline_rate: 10000
+  readline_burst: 20000
+  
+  # 最大流数
+  max_streams: 0
+  
+# 服务器配置
+server_config:
+  # 优雅关闭
+  graceful_shutdown_timeout: 30s
+  
+  # 日志配置
+  log_level: info
+  log_format: json
+  
+  # 健康检查
+  health_check_target: true
+
+# 跟踪配置
+tracing:
+  enabled: false
+
+# 指标配置
+metrics:
+  # 全局指标
+  global:
+    # 抓取间隔
+    scrape_interval: 15s
+    
+    # 外部标签
+    external_labels:
+      cluster: "synapse-cluster"
+      instance: "promtail-01"
+
+# 中文化配置
+localization:
+  timezone: "Asia/Shanghai"
+  language: "zh-CN"
+  date_format: "2006-01-02 15:04:05"
+
+# 性能优化
+performance:
+  # 内存限制
+  max_memory_usage: 256MB
+  
+  # 并发限制
+  max_concurrent_streams: 100
+  
+  # 缓冲区大小
+  buffer_size: 1MB
+  
+  # 批处理优化
+  batch_optimization:
+    enabled: true
+    max_batch_size: 1MB
+    max_batch_wait: 1s
+
+# 安全配置
+security:
+  # TLS配置
+  tls:
+    enabled: false
+    cert_file: ""
+    key_file: ""
+    ca_file: ""
+  
+  # 认证配置
+  auth:
+    enabled: false
+    username: ""
+    password: ""
+
+# 调试配置
+debug:
+  # 启用调试
+  enabled: false
+  
+  # 详细日志
+  verbose: false
+  
+  # 性能分析
+  profiling:
+    enabled: false
+    port: 6061
+
+# 监控配置
+monitoring:
+  # 健康检查
+  health_check:
+    enabled: true
+    path: "/ready"
+    port: 9080
+  
+  # 指标暴露
+  metrics:
+    enabled: true
+    path: "/metrics"
+    port: 9080
+  
+  # 状态检查
+  status_check:
+    enabled: true
+    interval: 30s

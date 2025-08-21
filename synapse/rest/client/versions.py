@@ -132,19 +132,19 @@ class VersionsRestServlet(RestServlet):
                     # Supports the busy presence state described in MSC3026.
                     "org.matrix.msc3026.busy_presence": self.config.experimental.msc3026_enabled,
                     # Supports receiving private read receipts as per MSC2285
-                    "org.matrix.msc2285.stable": True,  # TODO: Remove when MSC2285 becomes a part of the spec
+                    "org.matrix.msc2285.stable": True,
                     # Supports filtering of /publicRooms by room type as per MSC3827
                     "org.matrix.msc3827.stable": True,
                     # Adds support for thread relations, per MSC3440.
-                    "org.matrix.msc3440.stable": True,  # TODO: remove when "v1.3" is added above
+                    "org.matrix.msc3440.stable": True,
                     # Support for thread read receipts & notification counts.
                     "org.matrix.msc3771": True,
                     "org.matrix.msc3773": self.config.experimental.msc3773_enabled,
                     # Allows moderators to fetch redacted event content as described in MSC2815
                     "fi.mau.msc2815": self.config.experimental.msc2815_enabled,
                     # Adds a ping endpoint for appservices to check HS->AS connection
-                    "fi.mau.msc2659.stable": True,  # TODO: remove when "v1.7" is added above
-                    # TODO: this is no longer needed once unstable MSC3882 does not need to be supported:
+                    "fi.mau.msc2659.stable": True,
+                    # MSC3882支持
                     "org.matrix.msc3882": self.config.auth.login_via_existing_enabled,
                     # Adds support for remotely enabling/disabling pushers, as per MSC3881
                     "org.matrix.msc3881": msc3881_enabled,
@@ -153,7 +153,7 @@ class VersionsRestServlet(RestServlet):
                     # Adds support for relation-based redactions as per MSC3912.
                     "org.matrix.msc3912": self.config.experimental.msc3912_enabled,
                     # Whether recursively provide relations is supported.
-                    # TODO This is no longer needed once unstable MSC3981 does not need to be supported.
+                    # MSC3981支持
                     "org.matrix.msc3981": True,
                     # Adds support for deleting account data.
                     "org.matrix.msc3391": self.config.experimental.msc3391_enabled,

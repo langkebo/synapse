@@ -1,0 +1,326 @@
+# Synapse 本地化配置文件
+# 用于配置多语言支持和中文化
+
+# 本地化设置
+localization:
+  # 默认语言
+  default_language: "zh_CN"
+  
+  # 支持的语言列表
+  supported_languages:
+    - "zh_CN"  # 简体中文
+    - "zh_TW"  # 繁体中文
+    - "en_US"  # 英语
+    - "ja_JP"  # 日语
+    - "ko_KR"  # 韩语
+  
+  # 语言文件路径
+  language_files_path: "/data/localization"
+  
+  # 自动检测用户语言
+  auto_detect_language: true
+  
+  # 语言检测方式
+  detection_methods:
+    - "user_preference"    # 用户设置
+    - "accept_language"    # HTTP Accept-Language 头
+    - "client_language"    # 客户端语言设置
+    - "default"           # 默认语言
+  
+  # 回退语言（当请求的语言不可用时）
+  fallback_language: "en_US"
+  
+  # 缓存设置
+  cache:
+    enabled: true
+    ttl: 3600  # 缓存时间（秒）
+    max_size: 1000  # 最大缓存条目数
+  
+  # 动态加载
+  dynamic_loading: true
+  
+  # 字符编码
+  encoding: "utf-8"
+
+# 错误消息本地化
+error_localization:
+  enabled: true
+  
+  # 错误代码映射
+  error_code_mapping:
+    # HTTP 错误码
+    400: "api.responses.validation_failed"
+    401: "system.errors.authentication_failed"
+    403: "system.errors.permission_denied"
+    404: "friends.errors.not_found"
+    429: "friends.errors.rate_limited"
+    500: "system.errors.server_error"
+    503: "system.errors.service_unavailable"
+    
+    # 好友功能错误码
+    "M_FRIEND_REQUEST_EXISTS": "friends.errors.friend_request_already_exists"
+    "M_FRIEND_REQUEST_NOT_FOUND": "friends.errors.friend_request_not_found"
+    "M_FRIEND_REQUEST_EXPIRED": "friends.errors.friend_request_expired"
+    "M_FRIEND_REQUEST_TO_SELF": "friends.errors.friend_request_to_self"
+    "M_ALREADY_FRIENDS": "friends.errors.friend_request_already_friends"
+    "M_MAX_FRIENDS_REACHED": "friends.errors.max_friends_reached"
+    "M_USER_NOT_FOUND": "friends.errors.user_not_found"
+    "M_FRIENDSHIP_NOT_FOUND": "friends.errors.friendship_not_found"
+    "M_SEARCH_QUERY_TOO_SHORT": "friends.errors.search_query_too_short"
+    "M_SEARCH_DISABLED": "friends.errors.search_disabled"
+  
+  # 包含详细错误信息
+  include_details: true
+  
+  # 错误消息格式
+  message_format:
+    include_error_code: true
+    include_timestamp: false
+    include_request_id: true
+
+# API 响应本地化
+api_localization:
+  enabled: true
+  
+  # 响应消息本地化
+  response_messages:
+    enabled: true
+    
+    # 成功消息
+    success_messages:
+      "friend_request_sent": "friends.messages.friend_request_sent"
+      "friend_request_accepted": "friends.messages.friend_request_accepted"
+      "friend_request_rejected": "friends.messages.friend_request_rejected"
+      "friend_removed": "friends.messages.friend_removed"
+  
+  # 字段名本地化
+  field_localization:
+    enabled: true
+    
+    # 字段映射
+    field_mapping:
+      "user_id": "用户ID"
+      "display_name": "显示名称"
+      "avatar_url": "头像URL"
+      "created_at": "创建时间"
+      "updated_at": "更新时间"
+      "status": "状态"
+      "message": "消息"
+      "friend_count": "好友数量"
+      "request_count": "请求数量"
+  
+  # 分页信息本地化
+  pagination:
+    enabled: true
+    labels:
+      "total": "总数"
+      "page": "页码"
+      "per_page": "每页数量"
+      "has_more": "是否有更多"
+      "next_token": "下一页令牌"
+      "prev_token": "上一页令牌"
+
+# 日志本地化
+log_localization:
+  enabled: true
+  
+  # 日志级别本地化
+  log_levels:
+    "DEBUG": "调试"
+    "INFO": "信息"
+    "WARNING": "警告"
+    "ERROR": "错误"
+    "CRITICAL": "严重错误"
+  
+  # 日志消息本地化
+  log_messages:
+    enabled: true
+    
+    # 好友功能日志
+    friends:
+      "friend_request_sent": "logging.friends.request_sent"
+      "friend_request_accepted": "logging.friends.request_accepted"
+      "friend_request_rejected": "logging.friends.request_rejected"
+      "friendship_removed": "logging.friends.friendship_removed"
+      "user_searched": "logging.friends.user_searched"
+    
+    # 系统日志
+    system:
+      "user_login": "logging.system.user_login"
+      "user_logout": "logging.system.user_logout"
+      "api_request": "logging.system.api_request"
+      "database_query": "logging.system.database_query"
+  
+  # 时间格式本地化
+  time_format:
+    enabled: true
+    
+    # 中文时间格式
+    formats:
+      "zh_CN":
+        date: "%Y年%m月%d日"
+        time: "%H:%M:%S"
+        datetime: "%Y年%m月%d日 %H:%M:%S"
+        short_date: "%m月%d日"
+        short_time: "%H:%M"
+      
+      "en_US":
+        date: "%Y-%m-%d"
+        time: "%H:%M:%S"
+        datetime: "%Y-%m-%d %H:%M:%S"
+        short_date: "%m/%d"
+        short_time: "%H:%M"
+
+# 邮件本地化
+email_localization:
+  enabled: true
+  
+  # 邮件模板路径
+  template_path: "/data/localization/email_templates"
+  
+  # 邮件主题本地化
+  subjects:
+    "friend_request": "email.subjects.friend_request"
+    "friend_request_accepted": "email.subjects.friend_request_accepted"
+  
+  # 邮件模板本地化
+  templates:
+    "friend_request_notification": "email.templates.friend_request_notification"
+    "friend_request_accepted_notification": "email.templates.friend_request_accepted_notification"
+  
+  # 邮件编码
+  encoding: "utf-8"
+  
+  # HTML 邮件支持
+  html_support: true
+
+# 客户端本地化
+client_localization:
+  enabled: true
+  
+  # 客户端语言检测
+  language_detection:
+    # 从 HTTP 头检测
+    from_headers: true
+    
+    # 从用户设置检测
+    from_user_settings: true
+    
+    # 从客户端信息检测
+    from_client_info: true
+  
+  # 响应头设置
+  response_headers:
+    # 设置 Content-Language 头
+    set_content_language: true
+    
+    # 设置 Vary 头
+    set_vary_header: true
+  
+  # 客户端提示
+  client_hints:
+    enabled: true
+    
+    # 支持的提示类型
+    supported_hints:
+      - "Accept-Language"
+      - "User-Agent"
+      - "X-Client-Language"
+
+# 数据库本地化
+database_localization:
+  enabled: true
+  
+  # 数据库字符集
+  charset: "utf8mb4"
+  
+  # 数据库排序规则
+  collation: "utf8mb4_unicode_ci"
+  
+  # 本地化数据存储
+  localized_data:
+    # 存储用户语言偏好
+    store_user_language: true
+    
+    # 存储本地化内容
+    store_localized_content: true
+    
+    # 本地化内容表前缀
+    table_prefix: "localized_"
+  
+  # 查询优化
+  query_optimization:
+    # 使用语言索引
+    use_language_index: true
+    
+    # 缓存查询结果
+    cache_queries: true
+
+# 性能优化
+performance:
+  # 预加载常用语言
+  preload_languages:
+    - "zh_CN"
+    - "en_US"
+  
+  # 延迟加载
+  lazy_loading: true
+  
+  # 压缩语言文件
+  compress_files: true
+  
+  # 内存缓存
+  memory_cache:
+    enabled: true
+    max_size: "50MB"
+    ttl: 1800  # 30分钟
+  
+  # 文件缓存
+  file_cache:
+    enabled: true
+    cache_dir: "/tmp/synapse_localization_cache"
+    max_size: "100MB"
+
+# 开发和调试
+development:
+  # 调试模式
+  debug_mode: false
+  
+  # 显示缺失的翻译
+  show_missing_translations: true
+  
+  # 翻译键回退
+  fallback_to_key: true
+  
+  # 日志缺失的翻译
+  log_missing_translations: true
+  
+  # 翻译统计
+  translation_stats:
+    enabled: false
+    log_interval: 3600  # 每小时记录一次
+
+# 管理员工具
+admin_tools:
+  # 翻译管理界面
+  translation_management:
+    enabled: true
+    
+    # 在线编辑
+    online_editing: false
+    
+    # 导入/导出
+    import_export: true
+    
+    # 翻译验证
+    validation: true
+  
+  # 语言统计
+  language_statistics:
+    enabled: true
+    
+    # 使用情况统计
+    usage_stats: true
+    
+    # 覆盖率统计
+    coverage_stats: true

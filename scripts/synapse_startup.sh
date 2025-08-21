@@ -51,9 +51,8 @@ log_error() {
 }
 
 log_debug() {
-    if [[ "${DEBUG:-false}" == "true" ]]; then
-        echo -e "${BLUE}[DEBUG]${NC} $(date '+%Y-%m-%d %H:%M:%S') - $1"
-    fi
+    # 调试日志已简化
+    return 0
 }
 
 # 显示帮助信息 (Show help information)
@@ -77,7 +76,6 @@ Synapse 启动脚本 (Synapse Startup Script)
     -h, --help      显示此帮助信息 (Show this help message)
     -c, --config    指定配置文件路径 (Specify config file path)
     -u, --user      指定运行用户 (Specify run user)
-    -d, --debug     启用调试模式 (Enable debug mode)
     --no-warmup     跳过缓存预热 (Skip cache warmup)
     --no-monitor    跳过系统监控启动 (Skip system monitoring startup)
 

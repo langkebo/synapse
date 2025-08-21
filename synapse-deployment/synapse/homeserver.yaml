@@ -1,0 +1,219 @@
+# Synapse主配置文件 - 针对1核2GB服务器优化
+
+# 服务器基本配置
+server_name: "${SYNAPSE_SERVER_NAME}"
+pid_file: /data/homeserver.pid
+web_client_location: https://${ELEMENT_DOMAIN}/
+public_baseurl: https://${SYNAPSE_SERVER_NAME}/
+
+# 监听配置
+listeners:
+  # 客户端API
+  - port: 8008
+    tls: false
+    type: http
+    x_forwarded: true
+    bind_addresses: ['0.0.0.0']
+    resources:
+      - names: [client, federation]
+        compress: false
+
+  # 联邦API
+  - port: 8448
+    tls: false
+    type: http
+    x_forwarded: true
+    bind_addresses: ['0.0.0.0']
+    resources:
+      - names: [federation]
+
+  # 监控端点
+  - port: 9000
+    type: http
+    bind_addresses: ['0.0.0.0']
+    resources:
+      - names: [metrics]
+
+# 数据库配置
+database:
+  name: psycopg2
+  args:
+    user: "${POSTGRES_USER}"
+    password: "${POSTGRES_PASSWORD}"
+    database: "${POSTGRES_DB}"
+    host: "${POSTGRES_HOST}"
+    port: "${POSTGRES_PORT}"
+    cp_min: 2
+    cp_max: 5
+    cp_reconnect: true
+    cp_openfun: synapse.storage.engines.postgres.on_new_connection
+
+# Redis配置
+redis:
+  enabled: true
+  host: "${REDIS_HOST}"
+  port: "${REDIS_PORT}"
+  dbid: 0
+
+# 日志配置
+log_config: "/data/log.yaml"
+
+# 媒体存储配置
+media_store_path: "/media"
+max_upload_size: "${SYNAPSE_MAX_UPLOAD_SIZE}"
+max_image_pixels: 32M
+dynamic_thumbnails: false
+
+# 性能优化配置（针对1核2GB服务器）
+global_cache_factor: "${SYNAPSE_CACHE_FACTOR}"
+event_cache_size: "${SYNAPSE_EVENT_CACHE_SIZE}"
+
+# 缓存配置（针对低内存优化）
+caches:
+  global_factor: 0.3
+  per_cache_factors:
+    get_users_who_share_room_with_user: 0.05
+    get_rooms_for_user: 0.05
+    get_current_state_ids: 1.0
+    get_current_hosts_in_room: 1.0
+
+# 注册配置
+enable_registration: "${ENABLE_REGISTRATION}"
+registration_shared_secret: "${REGISTRATION_SHARED_SECRET}"
+
+# 安全配置
+macaroon_secret_key: "${MACAROON_SECRET_KEY}"
+form_secret: "${FORM_SECRET}"
+
+# 速率限制配置（针对低配置优化）
+rc_message:
+  per_second: 0.1
+  burst_count: 5
+
+rc_registration:
+  per_second: 0.1
+  burst_count: 2
+
+rc_login:
+  address:
+    per_second: 0.1
+    burst_count: 2
+  account:
+    per_second: 0.1
+    burst_count: 2
+  failed_attempts:
+    per_second: 0.1
+    burst_count: 2
+
+rc_admin_redaction:
+  per_second: 0.5
+  burst_count: 20
+
+rc_joins:
+  local:
+    per_second: 0.05
+    burst_count: 5
+  remote:
+    per_second: 0.005
+    burst_count: 5
+
+# 联邦配置
+federation_domain_whitelist: []
+federation_ip_range_blacklist:
+  - '127.0.0.0/8'
+  - '10.0.0.0/8'
+  - '172.16.0.0/12'
+  - '192.168.0.0/16'
+  - '100.64.0.0/10'
+  - '169.254.0.0/16'
+  - '::1/128'
+  - 'fe80::/64'
+  - 'fc00::/7'
+
+# 监控配置
+enable_metrics: "${ENABLE_METRICS}"
+report_stats: "${REPORT_STATS}"
+
+# 用户目录配置
+user_directory:
+  enabled: true
+  search_all_users: false
+  prefer_local_users: true
+
+# 房间配置（针对低配置优化）
+max_room_size: 500
+default_room_version: "10"
+
+# 推送配置
+push:
+  include_content: true
+  group_unread_count_by_room: false
+
+# 应用服务配置
+app_service_config_files: []
+
+# 好友功能配置
+friends:
+  enabled: "${FRIENDS_ENABLED}"
+  max_friends_per_user: "${MAX_FRIENDS_PER_USER}"
+  friend_request_timeout_days: "${FRIEND_REQUEST_TIMEOUT_DAYS}"
+  auto_accept_friends: "${AUTO_ACCEPT_FRIENDS}"
+
+# 实验性功能
+experimental_features:
+  spaces_enabled: true
+  msc3026_enabled: true
+  msc2716_enabled: false
+
+# 工作进程配置（单核优化）
+worker_app: null
+worker_name: null
+worker_main_http_uri: null
+worker_replication_host: null
+worker_replication_http_port: null
+
+# 其他配置
+enable_search: true
+search_all_users: false
+allow_guest_access: false
+allow_public_rooms_without_auth: false
+allow_public_rooms_over_federation: false
+
+# 密码策略
+password_config:
+  enabled: true
+  policy:
+    minimum_length: 8
+    require_digit: true
+    require_symbol: false
+    require_lowercase: true
+    require_uppercase: true
+
+# 邮件配置（可选）
+# email:
+#   smtp_host: "localhost"
+#   smtp_port: 25
+#   smtp_user: ""
+#   smtp_pass: ""
+#   force_tls: false
+#   require_transport_security: false
+#   notif_from: "Your Friendly %(server_name)s homeserver <noreply@%(server_name)s>"
+#   app_name: Matrix
+
+# 第三方身份验证（可选）
+# oidc_providers: []
+# saml2_config: {}
+# cas_config: {}
+
+# 模块配置
+modules: []
+
+# 签名密钥文件
+signing_key_path: "/data/signing.key"
+
+# 信任的密钥服务器
+trusted_key_servers:
+  - server_name: "matrix.org"
+
+# 抑制密钥服务器警告
+suppress_key_server_warning: true

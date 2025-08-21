@@ -1,0 +1,490 @@
+# 好友功能告警规则
+# 针对Synapse好友功能的专门监控告警配置
+
+groups:
+  # 好友功能核心告警
+  - name: friends.core
+    interval: 30s
+    rules:
+      # 好友请求失败率过高
+      - alert: FriendsRequestFailureRateHigh
+        expr: |
+          (
+            rate(synapse_friends_requests_total{status="error"}[5m]) /
+            rate(synapse_friends_requests_total[5m])
+          ) * 100 > 10
+        for: 2m
+        labels:
+          severity: warning
+          component: friends
+          feature: request_handling
+          team: backend
+        annotations:
+          summary: "好友请求失败率过高"
+          description: |
+            好友请求失败率超过10%，当前值: {{ printf "%.2f" $value }}%
+            
+            可能原因：
+            - 数据库连接问题
+            - 网络延迟
+            - 服务器负载过高
+            - 代码逻辑错误
+            
+            建议操作：
+            1. 检查数据库连接状态
+            2. 查看好友功能相关日志
+            3. 检查服务器资源使用情况
+          runbook_url: "https://monitoring.cjystx.top/runbooks/friends-api-errors"
+          dashboard_url: "http://grafana:3000/d/friends/friends-monitoring"
+      
+      # 好友API响应时间过长
+      - alert: FriendsAPIResponseTimeSlow
+        expr: |
+          histogram_quantile(0.95, 
+            rate(synapse_friends_request_duration_seconds_bucket[5m])
+          ) > 2
+        for: 3m
+        labels:
+          severity: warning
+          component: friends
+          feature: api_performance
+          team: backend
+        annotations:
+          summary: "好友API响应时间过长"
+          description: |
+            95%的好友API请求响应时间超过2秒，当前值: {{ printf "%.2f" $value }}秒
+            
+            影响：
+            - 用户体验下降
+            - 可能导致请求超时
+            - 影响应用整体性能
+            
+            建议操作：
+            1. 检查数据库查询性能
+            2. 优化好友功能代码逻辑
+            3. 检查缓存命中率
+          runbook_url: "https://monitoring.cjystx.top/runbooks/friends-api-latency"
+      
+      # 好友数据库查询时间过长
+      - alert: FriendsDBQuerySlow
+        expr: |
+          histogram_quantile(0.95,
+            rate(synapse_friends_db_query_duration_seconds_bucket[5m])
+          ) > 1
+        for: 2m
+        labels:
+          severity: warning
+          component: friends
+          feature: database
+          team: backend
+        annotations:
+          summary: "好友功能数据库查询时间过长"
+          description: |
+            95%的好友数据库查询时间超过1秒，当前值: {{ printf "%.2f" $value }}秒
+            
+            可能原因：
+            - 缺少数据库索引
+            - 查询语句未优化
+            - 数据量过大
+            - 数据库负载过高
+            
+            建议操作：
+            1. 检查好友相关表的索引
+            2. 分析慢查询日志
+            3. 优化SQL查询语句
+          runbook_url: "https://monitoring.cjystx.top/runbooks/friends-db-slow"
+      
+      # 好友缓存命中率过低
+      - alert: FriendsCacheHitRateLow
+        expr: |
+          (
+            rate(synapse_friends_cache_hits_total[5m]) /
+            (rate(synapse_friends_cache_hits_total[5m]) + rate(synapse_friends_cache_misses_total[5m]))
+          ) * 100 < 80
+        for: 5m
+        labels:
+          severity: warning
+          component: friends
+          feature: caching
+          team: backend
+        annotations:
+          summary: "好友功能缓存命中率过低"
+          description: |
+            好友缓存命中率低于80%，当前值: {{ printf "%.2f" $value }}%
+            
+            影响：
+            - 数据库查询增加
+            - 响应时间变长
+            - 系统负载增加
+            
+            建议操作：
+            1. 检查缓存配置
+            2. 调整缓存策略
+            3. 增加缓存容量
+          runbook_url: "https://monitoring.cjystx.top/runbooks/friends-cache-low"
+      
+      # 待处理好友请求数量过多
+      - alert: PendingFriendRequestsHigh
+        expr: synapse_friends_pending_requests_total > 1000
+        for: 10m
+        labels:
+          severity: warning
+          component: friends
+          feature: request_queue
+          team: backend
+        annotations:
+          summary: "待处理好友请求数量过多"
+          description: |
+            待处理的好友请求数量超过1000个，当前值: {{ $value }}
+            
+            可能原因：
+            - 处理速度跟不上请求速度
+            - 系统负载过高
+            - 处理逻辑存在问题
+            
+            建议操作：
+            1. 检查好友请求处理逻辑
+            2. 增加处理并发数
+            3. 优化处理性能
+          runbook_url: "https://monitoring.cjystx.top/runbooks/friends-requests-high"
+
+  # 好友功能业务告警
+  - name: friends.business
+    interval: 60s
+    rules:
+      # 好友关系数量异常增长
+      - alert: FriendshipGrowthAnomalous
+        expr: |
+          increase(synapse_friends_total_relationships[1h]) > 
+          avg_over_time(increase(synapse_friends_total_relationships[1h])[7d:1h]) * 3
+        for: 30m
+        labels:
+          severity: info
+          component: friends
+          feature: growth_monitoring
+          team: product
+        annotations:
+          summary: "好友关系数量异常增长"
+          description: |
+            过去1小时好友关系增长数量是过去7天平均值的3倍以上
+            当前1小时增长: {{ $value }}
+            
+            可能原因：
+            - 营销活动效果
+            - 系统异常
+            - 恶意刷量
+            
+            建议操作：
+            1. 检查是否有营销活动
+            2. 分析用户行为模式
+            3. 检查反作弊系统
+          runbook_url: "https://monitoring.cjystx.top/runbooks/friends-growth-anomaly"
+      
+      # 好友搜索失败率过高
+      - alert: FriendSearchFailureRateHigh
+        expr: |
+          (
+            rate(synapse_friends_search_requests_total{status="error"}[5m]) /
+            rate(synapse_friends_search_requests_total[5m])
+          ) * 100 > 15
+        for: 3m
+        labels:
+          severity: warning
+          component: friends
+          feature: search
+          team: backend
+        annotations:
+          summary: "好友搜索失败率过高"
+          description: |
+            好友搜索失败率超过15%，当前值: {{ printf "%.2f" $value }}%
+            
+            影响：
+            - 用户无法找到好友
+            - 影响用户体验
+            - 可能影响用户留存
+            
+            建议操作：
+            1. 检查搜索服务状态
+            2. 查看搜索相关日志
+            3. 检查数据库索引
+          runbook_url: "https://monitoring.cjystx.top/runbooks/friends-search-failure"
+      
+      # 好友推荐服务异常
+      - alert: FriendRecommendationServiceDown
+        expr: up{job="friends-recommendation"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: friends
+          feature: recommendation
+          team: backend
+        annotations:
+          summary: "好友推荐服务不可用"
+          description: |
+            好友推荐服务已停止响应
+            
+            影响：
+            - 用户无法获得好友推荐
+            - 影响用户发现新朋友
+            - 可能影响用户活跃度
+            
+            紧急操作：
+            1. 重启好友推荐服务
+            2. 检查服务日志
+            3. 验证服务依赖
+          runbook_url: "https://monitoring.cjystx.top/runbooks/friends-recommendation-down"
+
+  # 好友功能安全告警
+  - name: friends.security
+    interval: 30s
+    rules:
+      # 好友请求频率异常
+      - alert: FriendRequestRateAnomalous
+        expr: |
+          rate(synapse_friends_requests_total[1m]) > 
+          avg_over_time(rate(synapse_friends_requests_total[1m])[1h]) * 5
+        for: 2m
+        labels:
+          severity: warning
+          component: friends
+          feature: security
+          team: security
+        annotations:
+          summary: "好友请求频率异常"
+          description: |
+            好友请求频率是过去1小时平均值的5倍以上
+            当前频率: {{ printf "%.2f" $value }} 请求/秒
+            
+            可能原因：
+            - DDoS攻击
+            - 恶意刷量
+            - 系统异常
+            
+            建议操作：
+            1. 检查请求来源IP
+            2. 启用限流机制
+            3. 分析请求模式
+          runbook_url: "https://monitoring.cjystx.top/runbooks/friends-rate-anomaly"
+      
+      # 单用户好友请求过多
+      - alert: SingleUserTooManyFriendRequests
+        expr: |
+          topk(5, 
+            rate(synapse_friends_requests_total[5m]) by (user_id)
+          ) > 10
+        for: 3m
+        labels:
+          severity: warning
+          component: friends
+          feature: security
+          team: security
+        annotations:
+          summary: "单用户好友请求过多"
+          description: |
+            用户 {{ $labels.user_id }} 在5分钟内发送了过多好友请求
+            当前频率: {{ printf "%.2f" $value }} 请求/分钟
+            
+            可能原因：
+            - 恶意用户行为
+            - 自动化脚本
+            - 账号被盗用
+            
+            建议操作：
+            1. 限制该用户的请求频率
+            2. 检查用户行为模式
+            3. 考虑临时封禁
+          runbook_url: "https://monitoring.cjystx.top/runbooks/user-spam-requests"
+      
+      # 好友功能API认证失败率高
+      - alert: FriendsAPIAuthFailureHigh
+        expr: |
+          (
+            rate(synapse_friends_auth_failures_total[5m]) /
+            rate(synapse_friends_requests_total[5m])
+          ) * 100 > 5
+        for: 2m
+        labels:
+          severity: warning
+          component: friends
+          feature: security
+          team: security
+        annotations:
+          summary: "好友API认证失败率过高"
+          description: |
+            好友API认证失败率超过5%，当前值: {{ printf "%.2f" $value }}%
+            
+            可能原因：
+            - 恶意攻击尝试
+            - Token过期问题
+            - 客户端配置错误
+            
+            建议操作：
+            1. 检查认证日志
+            2. 分析失败原因
+            3. 加强安全监控
+          runbook_url: "https://monitoring.cjystx.top/runbooks/friends-auth-failure"
+
+  # 好友功能性能告警
+  - name: friends.performance
+    interval: 30s
+    rules:
+      # 好友列表加载时间过长
+      - alert: FriendListLoadTimeSlow
+        expr: |
+          histogram_quantile(0.95,
+            rate(synapse_friends_list_load_duration_seconds_bucket[5m])
+          ) > 3
+        for: 3m
+        labels:
+          severity: warning
+          component: friends
+          feature: performance
+          team: backend
+        annotations:
+          summary: "好友列表加载时间过长"
+          description: |
+            95%的好友列表加载时间超过3秒，当前值: {{ printf "%.2f" $value }}秒
+            
+            影响：
+            - 用户体验差
+            - 可能导致用户流失
+            - 影响应用性能
+            
+            建议操作：
+            1. 优化好友列表查询
+            2. 增加分页机制
+            3. 优化缓存策略
+          runbook_url: "https://monitoring.cjystx.top/runbooks/friends-list-slow"
+      
+      # 好友状态同步延迟
+      - alert: FriendStatusSyncDelay
+        expr: |
+          histogram_quantile(0.95,
+            rate(synapse_friends_status_sync_delay_seconds_bucket[5m])
+          ) > 10
+        for: 5m
+        labels:
+          severity: warning
+          component: friends
+          feature: sync
+          team: backend
+        annotations:
+          summary: "好友状态同步延迟过高"
+          description: |
+            95%的好友状态同步延迟超过10秒，当前值: {{ printf "%.2f" $value }}秒
+            
+            影响：
+            - 好友状态不实时
+            - 用户体验下降
+            - 可能导致误解
+            
+            建议操作：
+            1. 检查同步机制
+            2. 优化网络连接
+            3. 增加同步频率
+          runbook_url: "https://monitoring.cjystx.top/runbooks/friends-sync-delay"
+      
+      # 好友功能内存使用过高
+      - alert: FriendsMemoryUsageHigh
+        expr: |
+          process_resident_memory_bytes{job="synapse",component="friends"} / 1024 / 1024 > 200
+        for: 5m
+        labels:
+          severity: warning
+          component: friends
+          feature: memory
+          team: backend
+        annotations:
+          summary: "好友功能内存使用过高"
+          description: |
+            好友功能内存使用超过200MB，当前值: {{ printf "%.2f" $value }}MB
+            
+            可能原因：
+            - 内存泄漏
+            - 缓存过大
+            - 数据结构不优化
+            
+            建议操作：
+            1. 检查内存泄漏
+            2. 优化缓存大小
+            3. 重启相关服务
+          runbook_url: "https://monitoring.cjystx.top/runbooks/friends-memory-high"
+
+  # 好友功能可用性告警
+  - name: friends.availability
+    interval: 15s
+    rules:
+      # 好友服务健康检查失败
+      - alert: FriendsServiceHealthCheckFailed
+        expr: synapse_friends_health_check_status != 1
+        for: 30s
+        labels:
+          severity: critical
+          component: friends
+          feature: health
+          team: sre
+        annotations:
+          summary: "好友服务健康检查失败"
+          description: |
+            好友服务健康检查失败，服务可能不可用
+            
+            影响：
+            - 好友功能完全不可用
+            - 用户无法进行好友操作
+            - 严重影响用户体验
+            
+            紧急操作：
+            1. 立即检查服务状态
+            2. 重启好友相关服务
+            3. 检查依赖服务
+          runbook_url: "https://monitoring.cjystx.top/runbooks/friends-health-failed"
+      
+      # 好友数据库连接失败
+      - alert: FriendsDatabaseConnectionFailed
+        expr: synapse_friends_db_connections_active == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: friends
+          feature: database
+          team: dba
+        annotations:
+          summary: "好友功能数据库连接失败"
+          description: |
+            好友功能无法连接到数据库
+            
+            影响：
+            - 好友数据无法读写
+            - 功能完全不可用
+            - 可能导致数据丢失
+            
+            紧急操作：
+            1. 检查数据库服务状态
+            2. 检查网络连接
+            3. 重启数据库连接池
+          runbook_url: "https://monitoring.cjystx.top/runbooks/friends-db-connection-failed"
+      
+      # 好友缓存服务不可用
+      - alert: FriendsCacheServiceDown
+        expr: up{job="redis",service="friends-cache"} == 0
+        for: 1m
+        labels:
+          severity: warning
+          component: friends
+          feature: cache
+          team: sre
+        annotations:
+          summary: "好友缓存服务不可用"
+          description: |
+            好友功能的缓存服务Redis不可用
+            
+            影响：
+            - 性能显著下降
+            - 数据库负载增加
+            - 响应时间变长
+            
+            建议操作：
+            1. 重启Redis服务
+            2. 检查Redis配置
+            3. 监控数据库负载
+          runbook_url: "https://monitoring.cjystx.top/runbooks/friends-cache-down"

@@ -1,0 +1,465 @@
+# Synapse 日志配置文件
+# 针对1核2GB服务器优化的日志配置，包含好友功能专门日志
+
+version: 1
+disable_existing_loggers: false
+
+# 格式化器定义
+formatters:
+  # 标准格式
+  standard:
+    format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    datefmt: '%Y-%m-%d %H:%M:%S'
+  
+  # 详细格式（包含文件和行号）
+  detailed:
+    format: '%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(funcName)s - %(message)s'
+    datefmt: '%Y-%m-%d %H:%M:%S'
+  
+  # JSON格式（便于日志分析）
+  json:
+    format: '%(asctime)s'
+    class: pythonjsonlogger.jsonlogger.JsonFormatter
+    datefmt: '%Y-%m-%d %H:%M:%S'
+  
+  # 中文友好格式
+  chinese:
+    format: '%(asctime)s [%(levelname)s] %(name)s: %(message)s'
+    datefmt: '%Y年%m月%d日 %H:%M:%S'
+  
+  # 性能监控格式
+  performance:
+    format: '%(asctime)s - PERF - %(name)s - %(message)s - 耗时: %(duration)sms'
+    datefmt: '%Y-%m-%d %H:%M:%S'
+  
+  # 审计日志格式
+  audit:
+    format: '%(asctime)s - AUDIT - 用户: %(user_id)s - 操作: %(action)s - 结果: %(result)s - 详情: %(message)s'
+    datefmt: '%Y-%m-%d %H:%M:%S'
+
+# 处理器定义
+handlers:
+  # 控制台输出
+  console:
+    class: logging.StreamHandler
+    level: INFO
+    formatter: chinese
+    stream: ext://sys.stdout
+  
+  # 主日志文件
+  main_file:
+    class: logging.handlers.RotatingFileHandler
+    level: INFO
+    formatter: detailed
+    filename: /data/logs/synapse.log
+    maxBytes: 52428800  # 50MB
+    backupCount: 10
+    encoding: utf-8
+  
+  # 错误日志文件
+  error_file:
+    class: logging.handlers.RotatingFileHandler
+    level: ERROR
+    formatter: detailed
+    filename: /data/logs/synapse_error.log
+    maxBytes: 52428800  # 50MB
+    backupCount: 5
+    encoding: utf-8
+  
+  # 好友功能专用日志
+  friends_file:
+    class: logging.handlers.RotatingFileHandler
+    level: DEBUG
+    formatter: detailed
+    filename: /data/logs/friends.log
+    maxBytes: 20971520  # 20MB
+    backupCount: 7
+    encoding: utf-8
+  
+  # API访问日志
+  api_file:
+    class: logging.handlers.RotatingFileHandler
+    level: INFO
+    formatter: json
+    filename: /data/logs/api_access.log
+    maxBytes: 104857600  # 100MB
+    backupCount: 5
+    encoding: utf-8
+  
+  # 性能监控日志
+  performance_file:
+    class: logging.handlers.RotatingFileHandler
+    level: INFO
+    formatter: performance
+    filename: /data/logs/performance.log
+    maxBytes: 52428800  # 50MB
+    backupCount: 3
+    encoding: utf-8
+  
+  # 审计日志
+  audit_file:
+    class: logging.handlers.RotatingFileHandler
+    level: INFO
+    formatter: audit
+    filename: /data/logs/audit.log
+    maxBytes: 104857600  # 100MB
+    backupCount: 10
+    encoding: utf-8
+  
+  # 数据库日志
+  database_file:
+    class: logging.handlers.RotatingFileHandler
+    level: WARNING
+    formatter: detailed
+    filename: /data/logs/database.log
+    maxBytes: 52428800  # 50MB
+    backupCount: 5
+    encoding: utf-8
+  
+  # 缓存日志
+  cache_file:
+    class: logging.handlers.RotatingFileHandler
+    level: INFO
+    formatter: standard
+    filename: /data/logs/cache.log
+    maxBytes: 20971520  # 20MB
+    backupCount: 3
+    encoding: utf-8
+  
+  # 联邦日志
+  federation_file:
+    class: logging.handlers.RotatingFileHandler
+    level: INFO
+    formatter: detailed
+    filename: /data/logs/federation.log
+    maxBytes: 52428800  # 50MB
+    backupCount: 5
+    encoding: utf-8
+  
+  # 安全日志
+  security_file:
+    class: logging.handlers.RotatingFileHandler
+    level: WARNING
+    formatter: audit
+    filename: /data/logs/security.log
+    maxBytes: 52428800  # 50MB
+    backupCount: 10
+    encoding: utf-8
+  
+  # 系统日志（syslog）
+  syslog:
+    class: logging.handlers.SysLogHandler
+    level: ERROR
+    formatter: standard
+    address: /dev/log
+    facility: local0
+  
+  # 邮件告警（严重错误）
+  email:
+    class: logging.handlers.SMTPHandler
+    level: CRITICAL
+    formatter: detailed
+    mailhost: localhost
+    fromaddr: synapse@localhost
+    toaddrs: ['admin@localhost']
+    subject: 'Synapse Critical Error'
+    credentials: null
+    secure: null
+
+# 日志记录器定义
+loggers:
+  # 根记录器
+  root:
+    level: INFO
+    handlers: [console, main_file, error_file]
+    propagate: false
+  
+  # Synapse 主模块
+  synapse:
+    level: INFO
+    handlers: [main_file, error_file]
+    propagate: false
+    qualname: synapse
+  
+  # 好友功能模块
+  synapse.rest.client.friends:
+    level: DEBUG
+    handlers: [friends_file, console]
+    propagate: false
+    qualname: synapse.rest.client.friends
+  
+  synapse.handlers.friends:
+    level: DEBUG
+    handlers: [friends_file]
+    propagate: false
+    qualname: synapse.handlers.friends
+  
+  synapse.storage.databases.main.friends:
+    level: DEBUG
+    handlers: [friends_file, database_file]
+    propagate: false
+    qualname: synapse.storage.databases.main.friends
+  
+  # API 访问日志
+  synapse.access:
+    level: INFO
+    handlers: [api_file]
+    propagate: false
+    qualname: synapse.access
+  
+  synapse.http:
+    level: INFO
+    handlers: [api_file]
+    propagate: false
+    qualname: synapse.http
+  
+  # 性能监控
+  synapse.metrics:
+    level: INFO
+    handlers: [performance_file]
+    propagate: false
+    qualname: synapse.metrics
+  
+  # 数据库相关
+  synapse.storage:
+    level: WARNING
+    handlers: [database_file]
+    propagate: false
+    qualname: synapse.storage
+  
+  synapse.storage.engines:
+    level: WARNING
+    handlers: [database_file]
+    propagate: false
+    qualname: synapse.storage.engines
+  
+  # 缓存相关
+  synapse.util.caches:
+    level: INFO
+    handlers: [cache_file]
+    propagate: false
+    qualname: synapse.util.caches
+  
+  # 联邦相关
+  synapse.federation:
+    level: INFO
+    handlers: [federation_file]
+    propagate: false
+    qualname: synapse.federation
+  
+  synapse.http.federation:
+    level: INFO
+    handlers: [federation_file]
+    propagate: false
+    qualname: synapse.http.federation
+  
+  # 认证和安全
+  synapse.handlers.auth:
+    level: WARNING
+    handlers: [security_file, audit_file]
+    propagate: false
+    qualname: synapse.handlers.auth
+  
+  synapse.api.auth:
+    level: WARNING
+    handlers: [security_file]
+    propagate: false
+    qualname: synapse.api.auth
+  
+  # 事件处理
+  synapse.handlers.message:
+    level: INFO
+    handlers: [main_file]
+    propagate: false
+    qualname: synapse.handlers.message
+  
+  synapse.handlers.room:
+    level: INFO
+    handlers: [main_file]
+    propagate: false
+    qualname: synapse.handlers.room
+  
+  # 媒体处理
+  synapse.rest.media:
+    level: INFO
+    handlers: [main_file]
+    propagate: false
+    qualname: synapse.rest.media
+  
+  # 推送通知
+  synapse.push:
+    level: INFO
+    handlers: [main_file]
+    propagate: false
+    qualname: synapse.push
+  
+  # 应用服务
+  synapse.appservice:
+    level: INFO
+    handlers: [main_file]
+    propagate: false
+    qualname: synapse.appservice
+  
+  # 第三方库日志控制
+  twisted:
+    level: WARNING
+    handlers: [main_file]
+    propagate: false
+    qualname: twisted
+  
+  urllib3:
+    level: WARNING
+    handlers: [main_file]
+    propagate: false
+    qualname: urllib3
+  
+  requests:
+    level: WARNING
+    handlers: [main_file]
+    propagate: false
+    qualname: requests
+  
+  psycopg2:
+    level: WARNING
+    handlers: [database_file]
+    propagate: false
+    qualname: psycopg2
+  
+  redis:
+    level: WARNING
+    handlers: [cache_file]
+    propagate: false
+    qualname: redis
+  
+  # 本地化模块
+  synapse.localization:
+    level: DEBUG
+    handlers: [friends_file]
+    propagate: false
+    qualname: synapse.localization
+
+# 特殊配置
+incremental: true
+
+# 日志轮转配置
+log_rotation:
+  # 每日轮转
+  daily_rotation: true
+  
+  # 保留天数
+  retention_days: 30
+  
+  # 压缩旧日志
+  compress_old_logs: true
+  
+  # 最大总日志大小（GB）
+  max_total_size: 5
+
+# 性能优化配置
+performance:
+  # 异步日志写入
+  async_logging: true
+  
+  # 缓冲区大小
+  buffer_size: 8192
+  
+  # 批量写入
+  batch_write: true
+  
+  # 写入间隔（秒）
+  write_interval: 1
+
+# 监控集成
+monitoring_integration:
+  # Prometheus 指标
+  prometheus_metrics: true
+  
+  # 健康检查日志
+  health_check_logging: true
+  
+  # 错误率监控
+  error_rate_monitoring: true
+  
+  # 响应时间监控
+  response_time_monitoring: true
+
+# 告警配置
+alerting:
+  # 错误率阈值
+  error_rate_threshold: 0.05  # 5%
+  
+  # 响应时间阈值（毫秒）
+  response_time_threshold: 1000
+  
+  # 磁盘使用率阈值
+  disk_usage_threshold: 0.85  # 85%
+  
+  # 内存使用率阈值
+  memory_usage_threshold: 0.90  # 90%
+
+# 日志分析配置
+log_analysis:
+  # 启用日志分析
+  enabled: true
+  
+  # 分析间隔（分钟）
+  analysis_interval: 15
+  
+  # 异常检测
+  anomaly_detection: true
+  
+  # 趋势分析
+  trend_analysis: true
+  
+  # 自动报告
+  auto_reporting: true
+
+# 调试配置
+debug:
+  # 调试模式
+  debug_mode: false
+  
+  # 详细SQL日志
+  verbose_sql: false
+  
+  # HTTP请求详情
+  http_request_details: false
+  
+  # 缓存调试
+  cache_debug: false
+  
+  # 好友功能调试
+  friends_debug: true
+
+# 安全配置
+security:
+  # 敏感信息过滤
+  filter_sensitive_data: true
+  
+  # 敏感字段列表
+  sensitive_fields:
+    - password
+    - access_token
+    - refresh_token
+    - client_secret
+    - private_key
+  
+  # IP地址记录
+  log_ip_addresses: true
+  
+  # 用户代理记录
+  log_user_agents: true
+
+# 国际化配置
+internationalization:
+  # 启用中文日志
+  chinese_logging: true
+  
+  # 时区设置
+  timezone: 'Asia/Shanghai'
+  
+  # 日期格式
+  date_format: '%Y年%m月%d日'
+  
+  # 时间格式
+  time_format: '%H:%M:%S'

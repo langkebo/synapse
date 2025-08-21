@@ -60,7 +60,7 @@ class LoginTokenRequestServlet(RestServlet):
         *client_patterns(
             "/login/get_token$", releases=["v1"], v1=False, unstable=False
         ),
-        # TODO: this is no longer needed once unstable MSC3882 does not need to be supported:
+        # MSC3882支持
         *client_patterns(
             "/org.matrix.msc3882/login/token$", releases=[], v1=False, unstable=True
         ),
@@ -115,7 +115,7 @@ class LoginTokenRequestServlet(RestServlet):
             200,
             {
                 "login_token": login_token,
-                # TODO: this is no longer needed once unstable MSC3882 does not need to be supported:
+                # MSC3882支持
                 "expires_in": self.token_timeout // 1000,
                 "expires_in_ms": self.token_timeout,
             },

@@ -1,0 +1,485 @@
+# Grafana仪表板自动配置
+# 用于自动加载和管理仪表板
+
+apiVersion: 1
+
+# 仪表板提供者配置
+providers:
+  # 主要仪表板目录
+  - name: 'synapse-dashboards'
+    orgId: 1
+    folder: 'Synapse Matrix'
+    folderUid: 'synapse-folder'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: true
+
+  # 系统监控仪表板
+  - name: 'system-dashboards'
+    orgId: 1
+    folder: 'System Monitoring'
+    folderUid: 'system-folder'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards/system
+      foldersFromFilesStructure: false
+
+  # 好友功能专用仪表板
+  - name: 'friends-dashboards'
+    orgId: 1
+    folder: 'Friends Feature'
+    folderUid: 'friends-folder'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards/friends
+      foldersFromFilesStructure: false
+
+  # 数据库监控仪表板
+  - name: 'database-dashboards'
+    orgId: 1
+    folder: 'Database Monitoring'
+    folderUid: 'database-folder'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards/database
+      foldersFromFilesStructure: false
+
+  # 应用性能监控仪表板
+  - name: 'apm-dashboards'
+    orgId: 1
+    folder: 'Application Performance'
+    folderUid: 'apm-folder'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards/apm
+      foldersFromFilesStructure: false
+
+  # 网络和基础设施监控
+  - name: 'infrastructure-dashboards'
+    orgId: 1
+    folder: 'Infrastructure'
+    folderUid: 'infra-folder'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards/infrastructure
+      foldersFromFilesStructure: false
+
+  # 安全监控仪表板
+  - name: 'security-dashboards'
+    orgId: 1
+    folder: 'Security Monitoring'
+    folderUid: 'security-folder'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards/security
+      foldersFromFilesStructure: false
+
+  # 业务指标仪表板
+  - name: 'business-dashboards'
+    orgId: 1
+    folder: 'Business Metrics'
+    folderUid: 'business-folder'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards/business
+      foldersFromFilesStructure: false
+
+  # 告警和事件仪表板
+  - name: 'alerting-dashboards'
+    orgId: 1
+    folder: 'Alerting & Events'
+    folderUid: 'alerting-folder'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards/alerting
+      foldersFromFilesStructure: false
+
+  # 自定义仪表板
+  - name: 'custom-dashboards'
+    orgId: 1
+    folder: 'Custom Dashboards'
+    folderUid: 'custom-folder'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 60
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards/custom
+      foldersFromFilesStructure: true
+
+# 仪表板配置选项
+# 全局设置
+global:
+  # 默认刷新间隔
+  refresh: "30s"
+  
+  # 默认时间范围
+  time:
+    from: "now-1h"
+    to: "now"
+  
+  # 默认时区
+  timezone: "Asia/Shanghai"
+  
+  # 主题设置
+  theme: "dark"
+  
+  # 标签
+  tags:
+    - "synapse"
+    - "matrix"
+    - "monitoring"
+    - "production"
+
+# 仪表板模板变量
+templating:
+  # 环境变量
+  - name: "environment"
+    type: "constant"
+    current:
+      value: "production"
+    options:
+      - text: "Production"
+        value: "production"
+      - text: "Staging"
+        value: "staging"
+      - text: "Development"
+        value: "development"
+
+  # 实例变量
+  - name: "instance"
+    type: "query"
+    datasource: "Prometheus"
+    query: "label_values(up, instance)"
+    refresh: 1
+    includeAll: true
+    allValue: ".*"
+    current:
+      text: "All"
+      value: "$__all"
+
+  # 服务变量
+  - name: "service"
+    type: "query"
+    datasource: "Prometheus"
+    query: "label_values(up{instance=~\"$instance\"}, job)"
+    refresh: 1
+    includeAll: true
+    allValue: ".*"
+    current:
+      text: "All"
+      value: "$__all"
+
+  # 时间间隔变量
+  - name: "interval"
+    type: "interval"
+    auto: true
+    auto_count: 30
+    auto_min: "10s"
+    options:
+      - text: "1m"
+        value: "1m"
+      - text: "5m"
+        value: "5m"
+      - text: "10m"
+        value: "10m"
+      - text: "30m"
+        value: "30m"
+      - text: "1h"
+        value: "1h"
+    current:
+      text: "5m"
+      value: "5m"
+
+# 注释配置
+annotations:
+  # 部署注释
+  - name: "Deployments"
+    datasource: "Prometheus"
+    enable: true
+    hide: false
+    iconColor: "green"
+    query: "increase(synapse_deployment_total[1m]) > 0"
+    titleFormat: "Deployment"
+    textFormat: "New deployment detected"
+    tags:
+      - "deployment"
+
+  # 告警注释
+  - name: "Alerts"
+    datasource: "Prometheus"
+    enable: true
+    hide: false
+    iconColor: "red"
+    query: "ALERTS{alertstate=\"firing\"}"
+    titleFormat: "Alert: {{alertname}}"
+    textFormat: "{{summary}}"
+    tags:
+      - "alert"
+
+  # 维护窗口注释
+  - name: "Maintenance"
+    datasource: "Prometheus"
+    enable: true
+    hide: false
+    iconColor: "yellow"
+    query: "synapse_maintenance_mode > 0"
+    titleFormat: "Maintenance Mode"
+    textFormat: "System in maintenance mode"
+    tags:
+      - "maintenance"
+
+# 链接配置
+links:
+  # 外部链接
+  - title: "Synapse Documentation"
+    url: "https://matrix-org.github.io/synapse/"
+    type: "link"
+    icon: "doc"
+    tooltip: "Official Synapse Documentation"
+    targetBlank: true
+    tags:
+      - "documentation"
+
+  - title: "Matrix Specification"
+    url: "https://spec.matrix.org/"
+    type: "link"
+    icon: "info"
+    tooltip: "Matrix Protocol Specification"
+    targetBlank: true
+    tags:
+      - "specification"
+
+  - title: "Prometheus"
+    url: "http://localhost:9090"
+    type: "link"
+    icon: "cloud"
+    tooltip: "Prometheus Metrics"
+    targetBlank: true
+    tags:
+      - "monitoring"
+
+  - title: "AlertManager"
+    url: "http://localhost:9093"
+    type: "link"
+    icon: "bell"
+    tooltip: "Alert Manager"
+    targetBlank: true
+    tags:
+      - "alerting"
+
+  # 仪表板链接
+  - title: "System Overview"
+    url: "/d/system-overview/system-overview"
+    type: "dashboards"
+    icon: "dashboard"
+    tooltip: "System Overview Dashboard"
+    tags:
+      - "system"
+
+  - title: "Friends Feature"
+    url: "/d/friends-dashboard/friends-feature-monitoring"
+    type: "dashboards"
+    icon: "users"
+    tooltip: "Friends Feature Monitoring"
+    tags:
+      - "friends"
+
+# 面板默认设置
+panelDefaults:
+  # 图表默认设置
+  graph:
+    legend:
+      show: true
+      values: false
+      min: false
+      max: false
+      current: false
+      total: false
+      avg: false
+      alignAsTable: false
+      rightSide: false
+      hideEmpty: false
+      hideZero: false
+    tooltip:
+      shared: true
+      sort: 0
+      value_type: "individual"
+    grid:
+      leftMax: null
+      rightMax: null
+      leftMin: null
+      rightMin: null
+      threshold1: null
+      threshold2: null
+      threshold1Color: "rgba(216, 200, 27, 0.27)"
+      threshold2Color: "rgba(234, 112, 112, 0.22)"
+
+  # 单值面板默认设置
+  singlestat:
+    valueName: "current"
+    valueFontSize: "80%"
+    format: "short"
+    prefix: ""
+    postfix: ""
+    nullText: null
+    valueMaps:
+      - value: "null"
+        text: "N/A"
+    mappingTypes:
+      - name: "value to text"
+        value: 1
+      - name: "range to text"
+        value: 2
+    rangeMaps:
+      - from: "null"
+        to: "null"
+        text: "N/A"
+    mappingType: 1
+    nullPointMode: "connected"
+    colorBackground: false
+    colorValue: false
+    colorPrefix: false
+    colorPostfix: false
+    sparkline:
+      show: false
+      full: false
+      lineColor: "rgb(31, 120, 193)"
+      fillColor: "rgba(31, 118, 189, 0.18)"
+    gauge:
+      show: false
+      minValue: 0
+      maxValue: 100
+      thresholdMarkers: true
+      thresholdLabels: false
+
+# 权限设置
+permissions:
+  # 默认权限
+  default:
+    role: "Viewer"
+    
+  # 管理员权限
+  admin:
+    users:
+      - "admin@cjystx.top"
+    teams:
+      - "admin-team"
+    role: "Admin"
+    
+  # 编辑者权限
+  editor:
+    users:
+      - "editor@cjystx.top"
+    teams:
+      - "dev-team"
+    role: "Editor"
+
+# 通知设置
+notifications:
+  # 仪表板更新通知
+  dashboard_updates:
+    enabled: true
+    channels:
+      - "email"
+      - "webhook"
+    
+  # 错误通知
+  errors:
+    enabled: true
+    channels:
+      - "email"
+      - "slack"
+
+# 备份设置
+backup:
+  # 自动备份
+  auto_backup:
+    enabled: true
+    interval: "24h"
+    retention: "30d"
+    path: "/var/lib/grafana/backups"
+    
+  # 导出设置
+  export:
+    format: "json"
+    include_data: false
+    compress: true
+
+# 性能优化
+performance:
+  # 缓存设置
+  cache:
+    enabled: true
+    ttl: "5m"
+    
+  # 查询优化
+  query_optimization:
+    enabled: true
+    max_concurrent_queries: 10
+    query_timeout: "30s"
+    
+  # 渲染优化
+  rendering:
+    concurrent_render_limit: 5
+    image_uploader_provider: "local"
+
+# 中文化设置
+localization:
+  # 默认语言
+  default_language: "zh-CN"
+  
+  # 支持的语言
+  supported_languages:
+    - "zh-CN"
+    - "en-US"
+    - "ja-JP"
+    
+  # 时间格式
+  time_format: "YYYY-MM-DD HH:mm:ss"
+  
+  # 数字格式
+  number_format:
+    decimal_separator: "."
+    thousands_separator: ","
+
+# 调试设置
+debug:
+  # 启用调试模式
+  enabled: false
+  
+  # 日志级别
+  log_level: "info"
+  
+  # 性能监控
+  performance_monitoring:
+    enabled: true
+    sample_rate: 0.1

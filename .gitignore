@@ -36,6 +36,11 @@ __pycache__/
 /uploads
 /homeserver-config-overrides.d
 
+# Environment variables
+.env
+.env.*
+!.env.example
+
 # For direnv users
 /.envrc
 .direnv/

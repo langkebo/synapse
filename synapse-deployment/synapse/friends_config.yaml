@@ -1,0 +1,196 @@
+# 好友功能配置文件
+# Friends Feature Configuration
+
+# 基本配置
+friends:
+  # 是否启用好友功能
+  enabled: true
+  
+  # 每个用户最大好友数量
+  max_friends_per_user: 500
+  
+  # 好友请求超时时间（天）
+  friend_request_timeout_days: 30
+  
+  # 是否自动接受好友请求（仅用于测试）
+  auto_accept_friends: false
+  
+  # 搜索配置
+  search:
+    # 是否启用好友搜索
+    enabled: true
+    
+    # 搜索结果最大数量
+    max_results: 50
+    
+    # 搜索最小查询长度
+    min_query_length: 2
+    
+    # 是否允许模糊搜索
+    fuzzy_search: true
+    
+    # 搜索历史保留天数
+    history_retention_days: 90
+  
+  # 速率限制配置
+  rate_limits:
+    # 发送好友请求速率限制
+    send_request:
+      per_second: 0.1
+      burst_count: 5
+    
+    # 搜索好友速率限制
+    search:
+      per_second: 0.5
+      burst_count: 10
+    
+    # 获取好友列表速率限制
+    get_friends:
+      per_second: 1.0
+      burst_count: 20
+  
+  # 通知配置
+  notifications:
+    # 是否启用好友请求通知
+    friend_request: true
+    
+    # 是否启用好友接受通知
+    friend_accepted: true
+    
+    # 是否启用好友在线状态通知
+    friend_online: false
+  
+  # 隐私配置
+  privacy:
+    # 默认是否允许陌生人发送好友请求
+    allow_stranger_requests: true
+    
+    # 是否在用户目录中显示好友
+    show_friends_in_directory: false
+    
+    # 是否允许好友查看在线状态
+    share_online_status: true
+  
+  # 缓存配置
+  cache:
+    # 好友列表缓存时间（秒）
+    friends_list_ttl: 300
+    
+    # 好友请求缓存时间（秒）
+    friend_requests_ttl: 60
+    
+    # 搜索结果缓存时间（秒）
+    search_results_ttl: 120
+  
+  # 数据库配置
+  database:
+    # 是否启用数据库连接池
+    enable_connection_pool: true
+    
+    # 连接池大小
+    pool_size: 5
+    
+    # 查询超时时间（秒）
+    query_timeout: 30
+  
+  # 日志配置
+  logging:
+    # 是否启用详细日志
+    verbose: false
+    
+    # 是否记录搜索查询
+    log_searches: true
+    
+    # 是否记录好友请求
+    log_friend_requests: true
+  
+  # 性能优化配置
+  performance:
+    # 批量操作大小
+    batch_size: 100
+    
+    # 是否启用异步处理
+    async_processing: true
+    
+    # 并发处理数量
+    max_concurrent_operations: 10
+  
+  # 国际化配置
+  i18n:
+    # 默认语言
+    default_language: "zh-CN"
+    
+    # 支持的语言列表
+    supported_languages:
+      - "zh-CN"
+      - "zh-TW"
+      - "en-US"
+      - "en-GB"
+    
+    # 错误消息本地化
+    localized_errors: true
+  
+  # 错误消息配置
+  error_messages:
+    # 中文错误消息
+    zh-CN:
+      friend_not_found: "未找到该好友"
+      friend_request_exists: "好友请求已存在"
+      max_friends_reached: "已达到最大好友数量限制"
+      cannot_add_self: "不能添加自己为好友"
+      user_blocked: "该用户已被屏蔽"
+      friend_request_expired: "好友请求已过期"
+      invalid_user_id: "无效的用户ID"
+      permission_denied: "权限不足"
+      rate_limit_exceeded: "操作过于频繁，请稍后再试"
+      database_error: "数据库操作失败"
+    
+    # 英文错误消息
+    en-US:
+      friend_not_found: "Friend not found"
+      friend_request_exists: "Friend request already exists"
+      max_friends_reached: "Maximum number of friends reached"
+      cannot_add_self: "Cannot add yourself as a friend"
+      user_blocked: "User is blocked"
+      friend_request_expired: "Friend request has expired"
+      invalid_user_id: "Invalid user ID"
+      permission_denied: "Permission denied"
+      rate_limit_exceeded: "Rate limit exceeded, please try again later"
+      database_error: "Database operation failed"
+  
+  # 监控配置
+  monitoring:
+    # 是否启用监控指标
+    enabled: true
+    
+    # 指标收集间隔（秒）
+    collection_interval: 60
+    
+    # 监控的指标类型
+    metrics:
+      - "friend_requests_sent"
+      - "friend_requests_received"
+      - "friend_requests_accepted"
+      - "friend_requests_rejected"
+      - "friends_added"
+      - "friends_removed"
+      - "searches_performed"
+      - "api_response_time"
+      - "database_query_time"
+  
+  # 清理配置
+  cleanup:
+    # 是否启用自动清理
+    enabled: true
+    
+    # 清理间隔（小时）
+    interval_hours: 24
+    
+    # 清理已过期的好友请求
+    expired_requests: true
+    
+    # 清理旧的搜索历史
+    old_search_history: true
+    
+    # 清理已拒绝的好友请求（天）
+    rejected_requests_retention_days: 7

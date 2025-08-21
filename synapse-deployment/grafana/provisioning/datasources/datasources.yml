@@ -1,0 +1,111 @@
+# Grafana数据源配置
+# 自动配置Prometheus数据源
+
+apiVersion: 1
+
+# 删除现有数据源列表
+deleteDatasources:
+  - name: Prometheus
+    orgId: 1
+
+# 数据源配置
+datasources:
+  # Prometheus数据源
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    orgId: 1
+    uid: prometheus
+    url: http://prometheus:9090
+    isDefault: true
+    version: 1
+    editable: true
+    jsonData:
+      # HTTP方法
+      httpMethod: POST
+      # 查询超时
+      queryTimeout: 60s
+      # 时间间隔
+      timeInterval: 15s
+      # 自定义查询参数
+      customQueryParameters: ''
+      # 保持Cookie
+      keepCookies: []
+      # 示例查询
+      exemplarTraceIdDestinations:
+        - name: trace_id
+          datasourceUid: jaeger
+          url: 'http://jaeger:16686/trace/$${__value.raw}'
+      # Prometheus类型
+      prometheusType: Prometheus
+      # Prometheus版本
+      prometheusVersion: 2.40.0
+      # 缓存级别
+      cacheLevel: 'High'
+      # 禁用指标查找
+      disableMetricsLookup: false
+      # 增量查询
+      incrementalQuery: false
+      # 禁用录制规则
+      disableRecordingRules: false
+    secureJsonData: {}
+
+  # Node Exporter数据源（可选）
+  - name: Node Exporter
+    type: prometheus
+    access: proxy
+    orgId: 1
+    uid: node-exporter
+    url: http://node-exporter:9100
+    isDefault: false
+    version: 1
+    editable: true
+    jsonData:
+      httpMethod: GET
+      queryTimeout: 30s
+      timeInterval: 15s
+      prometheusType: Prometheus
+      prometheusVersion: 2.40.0
+      cacheLevel: 'Medium'
+      disableMetricsLookup: true
+    secureJsonData: {}
+
+  # PostgreSQL Exporter数据源（可选）
+  - name: PostgreSQL
+    type: prometheus
+    access: proxy
+    orgId: 1
+    uid: postgres-exporter
+    url: http://postgres-exporter:9187
+    isDefault: false
+    version: 1
+    editable: true
+    jsonData:
+      httpMethod: GET
+      queryTimeout: 30s
+      timeInterval: 30s
+      prometheusType: Prometheus
+      prometheusVersion: 2.40.0
+      cacheLevel: 'Medium'
+      disableMetricsLookup: true
+    secureJsonData: {}
+
+  # Redis Exporter数据源（可选）
+  - name: Redis
+    type: prometheus
+    access: proxy
+    orgId: 1
+    uid: redis-exporter
+    url: http://redis-exporter:9121
+    isDefault: false
+    version: 1
+    editable: true
+    jsonData:
+      httpMethod: GET
+      queryTimeout: 30s
+      timeInterval: 30s
+      prometheusType: Prometheus
+      prometheusVersion: 2.40.0
+      cacheLevel: 'Medium'
+      disableMetricsLookup: true
+    secureJsonData: {}

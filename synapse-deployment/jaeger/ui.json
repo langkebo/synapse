@@ -1,0 +1,141 @@
+{
+  "monitor": {
+    "menuEnabled": true
+  },
+  "dependencies": {
+    "dagMaxNumServices": 200,
+    "menuEnabled": true
+  },
+  "archiveEnabled": true,
+  "tracking": {
+    "gaID": "",
+    "trackErrors": true
+  },
+  "search": {
+    "maxLookback": {
+      "label": "2 天",
+      "value": "2d"
+    },
+    "maxLimit": 1500
+  },
+  "menu": [
+    {
+      "label": "关于 Jaeger",
+      "url": "https://www.jaegertracing.io/",
+      "newWindow": true
+    },
+    {
+      "label": "文档",
+      "url": "https://www.jaegertracing.io/docs/",
+      "newWindow": true
+    },
+    {
+      "label": "Grafana 监控",
+      "url": "http://grafana:3000",
+      "newWindow": true
+    },
+    {
+      "label": "Prometheus 指标",
+      "url": "http://prometheus:9090",
+      "newWindow": true
+    }
+  ],
+  "linkPatterns": [
+    {
+      "type": "logs",
+      "key": "logsLink",
+      "url": "http://grafana:3000/explore?left=%5B%22now-1h%22,%22now%22,%22Loki%22,%7B%22expr%22:%22%7Bservice%3D%5C%22#{service}%5C%22%7D%22%7D%5D",
+      "text": "查看日志"
+    },
+    {
+      "type": "metrics",
+      "key": "metricsLink", 
+      "url": "http://grafana:3000/d/synapse-overview/synapse-overview?var-service=#{service}",
+      "text": "查看指标"
+    },
+    {
+      "type": "traces",
+      "key": "tracesLink",
+      "url": "http://jaeger:16686/search?service=#{service}&start=#{startTime}&end=#{endTime}",
+      "text": "相关追踪"
+    }
+  ],
+  "embedded": {
+    "timeline": {
+      "hideSummary": false,
+      "hideMap": false
+    },
+    "uiEmbed": true
+  },
+  "qualityMetrics": {
+    "enabled": true,
+    "warningThreshold": 0.95,
+    "errorThreshold": 0.99
+  },
+  "criticalPath": {
+    "enabled": true
+  },
+  "deepDependencies": {
+    "menuEnabled": true
+  },
+  "theme": "light",
+  "topTagPrefixes": [
+    "http",
+    "db",
+    "error",
+    "user",
+    "room",
+    "friend"
+  ],
+  "collapseMapping": {
+    "http.status_code": {
+      "2xx": [200, 201, 202, 204],
+      "3xx": [300, 301, 302, 304],
+      "4xx": [400, 401, 403, 404, 409, 422],
+      "5xx": [500, 502, 503, 504]
+    },
+    "db.type": {
+      "postgresql": ["postgres", "postgresql"],
+      "redis": ["redis", "redis-cluster"]
+    }
+  },
+  "pathAgnosticOperations": [
+    "/api/v1/rooms/{roomId}/messages",
+    "/api/v1/users/{userId}/profile",
+    "/api/v1/friends/{friendId}",
+    "/api/v1/friends/requests/{requestId}"
+  ],
+  "customization": {
+    "title": "Synapse Matrix 分布式追踪",
+    "favicon": "/favicon.ico",
+    "logo": {
+      "src": "/logo.png",
+      "alt": "Synapse Logo"
+    },
+    "colors": {
+      "primary": "#1976d2",
+      "secondary": "#dc004e"
+    }
+  },
+  "locale": {
+    "language": "zh-CN",
+    "dateFormat": "YYYY-MM-DD HH:mm:ss",
+    "timeZone": "Asia/Shanghai"
+  },
+  "features": {
+    "archiveTrace": true,
+    "compareTraces": true,
+    "searchSidePanel": true,
+    "spanFilters": true,
+    "traceTimeline": true,
+    "traceDiff": true
+  },
+  "defaultLookback": "1h",
+  "defaultLimit": 20,
+  "maxSearchResults": 1500,
+  "spanNameColumnWidth": 25,
+  "serviceNameColumnWidth": 20,
+  "operationNameColumnWidth": 30,
+  "durationColumnWidth": 15,
+  "startTimeColumnWidth": 10
+}

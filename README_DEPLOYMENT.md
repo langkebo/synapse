@@ -141,10 +141,10 @@ synapse2/
 SERVER_NAME=matrix.example.com
 
 # 数据库配置
-POSTGRES_PASSWORD=your_secure_password
+POSTGRES_PASSWORD=请设置安全密码
 
 # Redis 配置
-REDIS_PASSWORD=your_redis_password
+REDIS_PASSWORD=请设置Redis密码
 
 # 性能配置
 SYNAPSE_CACHE_FACTOR=0.5
@@ -201,7 +201,8 @@ docker-compose exec monitor python /scripts/system_monitor.py --stats
 docker-compose exec monitor python /scripts/performance_monitor.py --report
 
 # 查看缓存状态
-docker-compose exec synapse python -c "from synapse.util.caches.cache_manager import CacheManager; print(CacheManager.get_stats())"
+# 查看缓存统计信息
+docker-compose exec synapse python -c "from synapse.util.caches.cache_manager import CacheManager; CacheManager.get_stats()"
 ```
 
 ### 备份和恢复

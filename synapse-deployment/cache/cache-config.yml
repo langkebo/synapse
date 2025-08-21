@@ -1,0 +1,625 @@
+# 缓存配置文件
+# 针对Synapse Matrix服务器和好友功能的缓存策略
+# 适用于1核2GB服务器环境
+
+# ============================================================================
+# 全局缓存配置
+# ============================================================================
+
+global:
+  # 缓存启用状态
+  enabled: true
+  
+  # 默认TTL（秒）
+  default_ttl: 3600
+  
+  # 最大内存使用（MB）
+  max_memory: 256
+  
+  # 缓存清理间隔（秒）
+  cleanup_interval: 300
+  
+  # 缓存统计启用
+  stats_enabled: true
+  
+  # 缓存预热启用
+  preload_enabled: true
+  
+  # 缓存压缩启用
+  compression_enabled: true
+  
+  # 缓存序列化格式
+  serialization_format: "json"
+  
+  # 缓存键前缀
+  key_prefix: "synapse:"
+  
+  # 缓存版本
+  cache_version: "v1"
+
+# ============================================================================
+# Redis缓存配置
+# ============================================================================
+
+redis:
+  # Redis连接配置
+  connection:
+    host: "redis"
+    port: 6379
+    password: "redis_secure_password_2024"
+    database: 0
+    
+  # 连接池配置
+  pool:
+    max_connections: 20
+    min_connections: 5
+    connection_timeout: 5
+    socket_timeout: 5
+    retry_on_timeout: true
+    health_check_interval: 30
+    
+  # Redis集群配置（如果使用）
+  cluster:
+    enabled: false
+    nodes: []
+    
+  # Redis哨兵配置（如果使用）
+  sentinel:
+    enabled: false
+    service_name: "mymaster"
+    sentinels: []
+
+# ============================================================================
+# 内存缓存配置
+# ============================================================================
+
+memory:
+  # 内存缓存启用
+  enabled: true
+  
+  # 最大条目数
+  max_entries: 10000
+  
+  # 最大内存使用（MB）
+  max_memory: 128
+  
+  # LRU淘汰策略
+  eviction_policy: "lru"
+  
+  # 内存缓存TTL（秒）
+  default_ttl: 1800
+  
+  # 内存缓存统计
+  stats_enabled: true
+
+# ============================================================================
+# Synapse核心缓存配置
+# ============================================================================
+
+synapse:
+  # 用户缓存
+  users:
+    enabled: true
+    ttl: 3600
+    max_entries: 5000
+    preload: true
+    
+  # 房间缓存
+  rooms:
+    enabled: true
+    ttl: 7200
+    max_entries: 2000
+    preload: true
+    
+  # 事件缓存
+  events:
+    enabled: true
+    ttl: 1800
+    max_entries: 10000
+    preload: false
+    
+  # 状态缓存
+  state:
+    enabled: true
+    ttl: 3600
+    max_entries: 5000
+    preload: true
+    
+  # 媒体缓存
+  media:
+    enabled: true
+    ttl: 86400
+    max_entries: 1000
+    preload: false
+    
+  # 设备缓存
+  devices:
+    enabled: true
+    ttl: 7200
+    max_entries: 3000
+    preload: true
+    
+  # 访问令牌缓存
+  access_tokens:
+    enabled: true
+    ttl: 3600
+    max_entries: 2000
+    preload: false
+    
+  # 推送规则缓存
+  push_rules:
+    enabled: true
+    ttl: 7200
+    max_entries: 1000
+    preload: true
+    
+  # 账户数据缓存
+  account_data:
+    enabled: true
+    ttl: 3600
+    max_entries: 2000
+    preload: true
+    
+  # 收据缓存
+  receipts:
+    enabled: true
+    ttl: 1800
+    max_entries: 5000
+    preload: false
+
+# ============================================================================
+# 好友功能缓存配置
+# ============================================================================
+
+friends:
+  # 好友关系缓存
+  relationships:
+    enabled: true
+    ttl: 3600
+    max_entries: 5000
+    preload: true
+    redis_db: 1
+    
+  # 好友请求缓存
+  requests:
+    enabled: true
+    ttl: 1800
+    max_entries: 2000
+    preload: false
+    redis_db: 1
+    
+  # 好友设置缓存
+  settings:
+    enabled: true
+    ttl: 7200
+    max_entries: 3000
+    preload: true
+    redis_db: 1
+    
+  # 好友推荐缓存
+  recommendations:
+    enabled: true
+    ttl: 3600
+    max_entries: 1000
+    preload: false
+    redis_db: 1
+    
+  # 好友在线状态缓存
+  presence:
+    enabled: true
+    ttl: 300
+    max_entries: 5000
+    preload: false
+    redis_db: 2
+    
+  # 好友搜索缓存
+  search:
+    enabled: true
+    ttl: 1800
+    max_entries: 1000
+    preload: false
+    redis_db: 1
+    
+  # 好友活动缓存
+  activity:
+    enabled: true
+    ttl: 900
+    max_entries: 2000
+    preload: false
+    redis_db: 2
+    
+  # 好友统计缓存
+  stats:
+    enabled: true
+    ttl: 3600
+    max_entries: 500
+    preload: true
+    redis_db: 1
+
+# ============================================================================
+# API响应缓存配置
+# ============================================================================
+
+api_cache:
+  # API响应缓存启用
+  enabled: true
+  
+  # 默认API缓存TTL
+  default_ttl: 300
+  
+  # 最大缓存大小（MB）
+  max_size: 64
+  
+  # 缓存键策略
+  key_strategy: "url_params_user"
+  
+  # 特定端点缓存配置
+  endpoints:
+    # 用户资料API
+    "/api/v1/profile":
+      ttl: 1800
+      enabled: true
+      
+    # 好友列表API
+    "/api/v1/friends":
+      ttl: 600
+      enabled: true
+      
+    # 好友推荐API
+    "/api/v1/friends/recommendations":
+      ttl: 3600
+      enabled: true
+      
+    # 房间列表API
+    "/api/v1/rooms":
+      ttl: 900
+      enabled: true
+      
+    # 用户搜索API
+    "/api/v1/users/search":
+      ttl: 1800
+      enabled: true
+
+# ============================================================================
+# 数据库查询缓存配置
+# ============================================================================
+
+db_cache:
+  # 数据库查询缓存启用
+  enabled: true
+  
+  # 查询缓存TTL
+  query_ttl: 1800
+  
+  # 最大缓存条目数
+  max_entries: 5000
+  
+  # 缓存命中率阈值
+  hit_ratio_threshold: 0.8
+  
+  # 慢查询缓存
+  slow_query_cache:
+    enabled: true
+    threshold_ms: 1000
+    ttl: 3600
+    
+  # 特定表缓存配置
+  tables:
+    users:
+      ttl: 3600
+      enabled: true
+      
+    rooms:
+      ttl: 7200
+      enabled: true
+      
+    events:
+      ttl: 1800
+      enabled: true
+      
+    friends_relationships:
+      ttl: 3600
+      enabled: true
+      
+    friends_requests:
+      ttl: 1800
+      enabled: true
+      
+    friends_settings:
+      ttl: 7200
+      enabled: true
+
+# ============================================================================
+# 会话缓存配置
+# ============================================================================
+
+session_cache:
+  # 会话缓存启用
+  enabled: true
+  
+  # 会话TTL（秒）
+  session_ttl: 7200
+  
+  # 最大会话数
+  max_sessions: 2000
+  
+  # 会话清理间隔
+  cleanup_interval: 600
+  
+  # 会话存储后端
+  backend: "redis"
+  
+  # 会话加密
+  encryption_enabled: true
+  
+  # 会话压缩
+  compression_enabled: true
+
+# ============================================================================
+# 静态资源缓存配置
+# ============================================================================
+
+static_cache:
+  # 静态资源缓存启用
+  enabled: true
+  
+  # 缓存目录
+  cache_dir: "/tmp/synapse_static_cache"
+  
+  # 最大缓存大小（MB）
+  max_size: 128
+  
+  # 文件类型配置
+  file_types:
+    images:
+      ttl: 86400
+      max_size: 64
+      
+    css:
+      ttl: 3600
+      max_size: 16
+      
+    js:
+      ttl: 3600
+      max_size: 32
+      
+    fonts:
+      ttl: 86400
+      max_size: 16
+
+# ============================================================================
+# 缓存预热配置
+# ============================================================================
+
+preload:
+  # 预热启用
+  enabled: true
+  
+  # 预热策略
+  strategy: "lazy"
+  
+  # 预热并发数
+  concurrency: 2
+  
+  # 预热超时（秒）
+  timeout: 30
+  
+  # 预热数据源
+  sources:
+    # 活跃用户预热
+    active_users:
+      enabled: true
+      limit: 1000
+      
+    # 热门房间预热
+    popular_rooms:
+      enabled: true
+      limit: 500
+      
+    # 好友关系预热
+    friend_relationships:
+      enabled: true
+      limit: 2000
+      
+    # 用户设置预热
+    user_settings:
+      enabled: true
+      limit: 1000
+
+# ============================================================================
+# 缓存监控配置
+# ============================================================================
+
+monitoring:
+  # 监控启用
+  enabled: true
+  
+  # 指标收集间隔（秒）
+  metrics_interval: 60
+  
+  # 指标保留时间（秒）
+  metrics_retention: 86400
+  
+  # 告警配置
+  alerts:
+    # 缓存命中率告警
+    hit_ratio:
+      enabled: true
+      threshold: 0.7
+      
+    # 内存使用告警
+    memory_usage:
+      enabled: true
+      threshold: 0.9
+      
+    # 连接数告警
+    connection_count:
+      enabled: true
+      threshold: 18
+      
+    # 响应时间告警
+    response_time:
+      enabled: true
+      threshold_ms: 100
+  
+  # 指标导出
+  metrics_export:
+    prometheus:
+      enabled: true
+      port: 9090
+      path: "/metrics"
+      
+    statsd:
+      enabled: false
+      host: "localhost"
+      port: 8125
+
+# ============================================================================
+# 缓存安全配置
+# ============================================================================
+
+security:
+  # 缓存加密
+  encryption:
+    enabled: true
+    algorithm: "AES-256-GCM"
+    key_rotation_interval: 86400
+    
+  # 访问控制
+  access_control:
+    enabled: true
+    user_isolation: true
+    
+  # 敏感数据处理
+  sensitive_data:
+    # 不缓存敏感字段
+    exclude_fields:
+      - "password"
+      - "access_token"
+      - "refresh_token"
+      - "private_key"
+      
+    # 敏感数据TTL
+    sensitive_ttl: 300
+
+# ============================================================================
+# 缓存优化配置
+# ============================================================================
+
+optimization:
+  # 批量操作
+  batch_operations:
+    enabled: true
+    batch_size: 100
+    batch_timeout: 10
+    
+  # 管道操作
+  pipeline:
+    enabled: true
+    pipeline_size: 50
+    
+  # 压缩配置
+  compression:
+    enabled: true
+    algorithm: "gzip"
+    min_size: 1024
+    
+  # 序列化优化
+  serialization:
+    format: "msgpack"
+    compression: true
+    
+  # 连接复用
+  connection_reuse:
+    enabled: true
+    max_idle_time: 300
+    
+  # 预取策略
+  prefetch:
+    enabled: true
+    prefetch_size: 10
+    prefetch_threshold: 0.8
+
+# ============================================================================
+# 缓存调试配置
+# ============================================================================
+
+debug:
+  # 调试模式
+  enabled: false
+  
+  # 详细日志
+  verbose_logging: false
+  
+  # 缓存操作日志
+  log_operations: false
+  
+  # 性能分析
+  profiling: false
+  
+  # 缓存转储
+  dump_enabled: false
+  dump_interval: 3600
+  
+  # 测试模式
+  test_mode: false
+
+# ============================================================================
+# 环境特定配置
+# ============================================================================
+
+environments:
+  development:
+    global:
+      enabled: true
+      default_ttl: 300
+    debug:
+      enabled: true
+      verbose_logging: true
+      
+  testing:
+    global:
+      enabled: true
+      default_ttl: 60
+    memory:
+      max_memory: 32
+      
+  production:
+    global:
+      enabled: true
+      default_ttl: 3600
+    security:
+      encryption:
+        enabled: true
+    monitoring:
+      enabled: true
+
+# ============================================================================
+# 中文化配置
+# ============================================================================
+
+localization:
+  # 语言设置
+  language: "zh-CN"
+  
+  # 时区设置
+  timezone: "Asia/Shanghai"
+  
+  # 错误消息本地化
+  error_messages:
+    cache_miss: "缓存未命中"
+    cache_error: "缓存操作错误"
+    connection_failed: "缓存连接失败"
+    timeout: "缓存操作超时"
+    memory_full: "缓存内存已满"
+    
+  # 日志消息本地化
+  log_messages:
+    cache_hit: "缓存命中"
+    cache_set: "缓存设置"
+    cache_delete: "缓存删除"
+    cache_clear: "缓存清空"
+    
+# ============================================================================
+# 配置文件结束
+# ============================================================================

@@ -390,10 +390,7 @@ def _check_client_allowed_to_see_event(
             _check_filter_send_to_client(event, clock, retention_policy, sender_ignored)
             == _CheckFilter.DENIED
         ):
-            filtered_event_logger.debug(
-                "_check_client_allowed_to_see_event(event=%s): Filtered out event because `_check_filter_send_to_client` returned `_CheckFilter.DENIED`",
-                event.event_id,
-            )
+            # 检查客户端是否允许查看事件
             return None
 
     if event.event_id in always_include_ids:
@@ -405,17 +402,10 @@ def _check_client_allowed_to_see_event(
         # for out-of-band membership events (eg, incoming invites, or rejections of
         # said invite) for the user themselves.
         if event.type == EventTypes.Member and event.state_key == user_id:
-            logger.debug(
-                "_check_client_allowed_to_see_event(event=%s): Returning out-of-band-membership event %s",
-                event.event_id,
-                event,
-            )
+            # 返回带外成员事件
             return event
 
-        filtered_event_logger.debug(
-            "_check_client_allowed_to_see_event(event=%s): Filtered out event because it's an outlier",
-            event.event_id,
-        )
+        # 检查客户端是否允许查看事件
         return None
 
     if state is None:
@@ -438,21 +428,13 @@ def _check_client_allowed_to_see_event(
 
     membership_result = _check_membership(user_id, event, visibility, state, is_peeking)
     if not membership_result.allowed:
-        filtered_event_logger.debug(
-            "_check_client_allowed_to_see_event(event=%s): Filtered out event because the user can't see the event because of their membership, membership_result.allowed=%s membership_result.joined=%s",
-            event.event_id,
-            membership_result.allowed,
-            membership_result.joined,
-        )
+        # 检查客户端是否允许查看事件
         return None
 
     # If the sender has been erased and the user was not joined at the time, we
     # must only return the redacted form.
     if sender_erased and not membership_result.joined:
-        filtered_event_logger.debug(
-            "_check_client_allowed_to_see_event(event=%s): Returning pruned event because `sender_erased` and the user was not joined at the time",
-            event.event_id,
-        )
+        # 检查客户端是否允许查看事件
         event = prune_event(event)
 
     return event

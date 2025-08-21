@@ -1,0 +1,477 @@
+# 数据库告警规则
+# PostgreSQL和Redis监控告警
+
+groups:
+  # PostgreSQL告警
+  - name: postgresql.performance
+    interval: 30s
+    rules:
+      # PostgreSQL服务不可用
+      - alert: PostgreSQLDown
+        expr: pg_up == 0
+        for: 30s
+        labels:
+          severity: critical
+          component: database
+          service: postgresql
+          team: dba
+        annotations:
+          summary: "PostgreSQL数据库不可用"
+          description: |
+            PostgreSQL数据库连接失败，服务可能已停止
+            实例: {{ $labels.instance }}
+            数据库: {{ $labels.datname }}
+            
+            影响：
+            - Synapse服务无法正常运行
+            - 用户无法登录和发送消息
+            - 数据无法读写
+            
+            紧急操作：
+            1. 检查PostgreSQL服务状态
+            2. 查看数据库日志
+            3. 重启PostgreSQL服务
+            4. 检查磁盘空间和权限
+          runbook_url: "https://monitoring.cjystx.top/runbooks/postgres-down"
+          dashboard_url: "http://grafana:3000/d/postgresql/postgresql-monitoring"
+      
+      # 数据库连接数过多
+      - alert: PostgreSQLTooManyConnections
+        expr: |
+          (pg_stat_database_numbackends / on(instance) pg_settings_max_connections) * 100 > 80
+        for: 2m
+        labels:
+          severity: warning
+          component: database
+          service: postgresql
+          team: dba
+        annotations:
+          summary: "PostgreSQL连接数过多"
+          description: |
+            PostgreSQL连接数超过最大连接数的80%
+            当前连接数: {{ with query "pg_stat_database_numbackends" }}{{ . | first | value }}{{ end }}
+            最大连接数: {{ with query "pg_settings_max_connections" }}{{ . | first | value }}{{ end }}
+            使用率: {{ printf "%.2f" $value }}%
+            实例: {{ $labels.instance }}
+            
+            影响：
+            - 新连接可能被拒绝
+            - 应用程序连接超时
+            - 服务性能下降
+            
+            建议操作：
+            1. 检查长时间运行的查询
+            2. 优化连接池配置
+            3. 终止空闲连接
+            4. 增加最大连接数限制
+          runbook_url: "https://monitoring.cjystx.top/runbooks/postgres-connections"
+      
+      # 查询执行时间过长
+      - alert: PostgreSQLSlowQueries
+        expr: |
+          pg_stat_activity_max_tx_duration{datname!=""} > 300
+        for: 1m
+        labels:
+          severity: warning
+          component: database
+          service: postgresql
+          team: dba
+        annotations:
+          summary: "PostgreSQL查询执行时间过长"
+          description: |
+            有查询执行时间超过5分钟
+            最长执行时间: {{ printf "%.2f" $value }}秒
+            数据库: {{ $labels.datname }}
+            实例: {{ $labels.instance }}
+            
+            影响：
+            - 数据库性能下降
+            - 可能导致锁等待
+            - 影响其他查询执行
+            
+            建议操作：
+            1. 检查慢查询日志
+            2. 分析查询执行计划
+            3. 优化SQL语句
+            4. 考虑终止长时间查询
+          runbook_url: "https://monitoring.cjystx.top/runbooks/postgres-slow-queries"
+      
+      # 数据库锁等待过多
+      - alert: PostgreSQLHighLockWaits
+        expr: |
+          rate(pg_stat_database_conflicts_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+          component: database
+          service: postgresql
+          team: dba
+        annotations:
+          summary: "PostgreSQL锁冲突过多"
+          description: |
+            数据库锁冲突频率过高，当前值: {{ printf "%.3f" $value }}/秒
+            数据库: {{ $labels.datname }}
+            实例: {{ $labels.instance }}
+            
+            影响：
+            - 查询响应时间增加
+            - 可能导致死锁
+            - 并发性能下降
+            
+            建议操作：
+            1. 检查锁等待情况
+            2. 优化事务逻辑
+            3. 减少长事务
+            4. 调整锁超时设置
+          runbook_url: "https://monitoring.cjystx.top/runbooks/postgres-lock-waits"
+      
+      # 数据库缓存命中率低
+      - alert: PostgreSQLLowCacheHitRatio
+        expr: |
+          (
+            pg_stat_database_blks_hit / 
+            (pg_stat_database_blks_hit + pg_stat_database_blks_read)
+          ) * 100 < 95
+        for: 5m
+        labels:
+          severity: warning
+          component: database
+          service: postgresql
+          team: dba
+        annotations:
+          summary: "PostgreSQL缓存命中率低"
+          description: |
+            数据库缓存命中率低于95%，当前值: {{ printf "%.2f" $value }}%
+            数据库: {{ $labels.datname }}
+            实例: {{ $labels.instance }}
+            
+            影响：
+            - 磁盘I/O增加
+            - 查询性能下降
+            - 系统负载增加
+            
+            建议操作：
+            1. 增加shared_buffers
+            2. 优化查询模式
+            3. 检查工作负载
+            4. 考虑增加内存
+          runbook_url: "https://monitoring.cjystx.top/runbooks/postgres-low-cache-hit"
+      
+      # 数据库磁盘使用率过高
+      - alert: PostgreSQLHighDiskUsage
+        expr: |
+          (pg_database_size_bytes / on(instance) node_filesystem_size_bytes{mountpoint="/var/lib/postgresql"}) * 100 > 85
+        for: 2m
+        labels:
+          severity: warning
+          component: database
+          service: postgresql
+          team: dba
+        annotations:
+          summary: "PostgreSQL磁盘使用率过高"
+          description: |
+            数据库磁盘使用率超过85%，当前值: {{ printf "%.2f" $value }}%
+            数据库大小: {{ with query "pg_database_size_bytes" }}{{ . | first | value | humanize1024 }}B{{ end }}
+            实例: {{ $labels.instance }}
+            
+            影响：
+            - 可能无法写入新数据
+            - 事务可能失败
+            - 备份可能失败
+            
+            建议操作：
+            1. 清理不必要的数据
+            2. 执行VACUUM FULL
+            3. 归档旧数据
+            4. 扩容磁盘空间
+          runbook_url: "https://monitoring.cjystx.top/runbooks/postgres-high-disk-usage"
+      
+      # 复制延迟过高
+      - alert: PostgreSQLReplicationLag
+        expr: |
+          pg_stat_replication_lag_seconds > 60
+        for: 1m
+        labels:
+          severity: warning
+          component: database
+          service: postgresql
+          team: dba
+        annotations:
+          summary: "PostgreSQL复制延迟过高"
+          description: |
+            主从复制延迟超过60秒，当前值: {{ printf "%.2f" $value }}秒
+            从库: {{ $labels.client_addr }}
+            实例: {{ $labels.instance }}
+            
+            影响：
+            - 数据一致性风险
+            - 读写分离效果差
+            - 故障切换风险
+            
+            建议操作：
+            1. 检查网络连接
+            2. 检查从库性能
+            3. 优化复制配置
+            4. 检查主库负载
+          runbook_url: "https://monitoring.cjystx.top/runbooks/postgres-replication-lag"
+
+  # Redis告警
+  - name: redis.performance
+    interval: 30s
+    rules:
+      # Redis服务不可用
+      - alert: RedisDown
+        expr: redis_up == 0
+        for: 30s
+        labels:
+          severity: critical
+          component: cache
+          service: redis
+          team: sre
+        annotations:
+          summary: "Redis缓存服务不可用"
+          description: |
+            Redis服务连接失败，缓存服务可能已停止
+            实例: {{ $labels.instance }}
+            
+            影响：
+            - 缓存功能失效
+            - 应用性能严重下降
+            - 数据库负载增加
+            - 好友功能可能异常
+            
+            紧急操作：
+            1. 检查Redis服务状态
+            2. 查看Redis日志
+            3. 重启Redis服务
+            4. 检查配置文件
+          runbook_url: "https://monitoring.cjystx.top/runbooks/redis-down"
+          dashboard_url: "http://grafana:3000/d/redis/redis-monitoring"
+      
+      # Redis内存使用率过高
+      - alert: RedisHighMemoryUsage
+        expr: |
+          (redis_memory_used_bytes / redis_memory_max_bytes) * 100 > 85
+        for: 2m
+        labels:
+          severity: warning
+          component: cache
+          service: redis
+          team: sre
+        annotations:
+          summary: "Redis内存使用率过高"
+          description: |
+            Redis内存使用率超过85%，当前值: {{ printf "%.2f" $value }}%
+            已使用: {{ with query "redis_memory_used_bytes" }}{{ . | first | value | humanize1024 }}B{{ end }}
+            最大值: {{ with query "redis_memory_max_bytes" }}{{ . | first | value | humanize1024 }}B{{ end }}
+            实例: {{ $labels.instance }}
+            
+            影响：
+            - 可能触发内存淘汰
+            - 缓存命中率下降
+            - 性能显著下降
+            
+            建议操作：
+            1. 清理过期键
+            2. 调整淘汰策略
+            3. 增加内存限制
+            4. 优化数据结构
+          runbook_url: "https://monitoring.cjystx.top/runbooks/redis-memory"
+      
+      # Redis连接数过多
+      - alert: RedisTooManyConnections
+        expr: redis_connected_clients > 100
+        for: 2m
+        labels:
+          severity: warning
+          component: cache
+          service: redis
+          team: sre
+        annotations:
+          summary: "Redis连接数过多"
+          description: |
+            Redis连接数超过100，当前值: {{ $value }}
+            实例: {{ $labels.instance }}
+            
+            影响：
+            - 可能达到连接限制
+            - 内存消耗增加
+            - 性能可能下降
+            
+            建议操作：
+            1. 检查连接泄漏
+            2. 优化连接池配置
+            3. 设置连接超时
+            4. 增加最大连接数
+          runbook_url: "https://monitoring.cjystx.top/runbooks/redis-too-many-connections"
+      
+      # Redis命令执行缓慢
+      - alert: RedisSlowCommands
+        expr: |
+          redis_slowlog_length > 10
+        for: 1m
+        labels:
+          severity: warning
+          component: cache
+          service: redis
+          team: sre
+        annotations:
+          summary: "Redis命令执行缓慢"
+          description: |
+            Redis慢查询日志条目超过10条，当前值: {{ $value }}
+            实例: {{ $labels.instance }}
+            
+            影响：
+            - 缓存响应时间增加
+            - 应用性能下降
+            - 可能阻塞其他命令
+            
+            建议操作：
+            1. 检查慢查询日志
+            2. 优化数据结构
+            3. 避免大键操作
+            4. 调整慢查询阈值
+          runbook_url: "https://monitoring.cjystx.top/runbooks/redis-slow-commands"
+      
+      # Redis缓存命中率低
+      - alert: RedisLowHitRatio
+        expr: |
+          (
+            rate(redis_keyspace_hits_total[5m]) / 
+            (rate(redis_keyspace_hits_total[5m]) + rate(redis_keyspace_misses_total[5m]))
+          ) * 100 < 80
+        for: 5m
+        labels:
+          severity: warning
+          component: cache
+          service: redis
+          team: sre
+        annotations:
+          summary: "Redis缓存命中率低"
+          description: |
+            Redis缓存命中率低于80%，当前值: {{ printf "%.2f" $value }}%
+            实例: {{ $labels.instance }}
+            
+            影响：
+            - 缓存效果差
+            - 数据库负载增加
+            - 应用响应时间增加
+            
+            建议操作：
+            1. 分析缓存策略
+            2. 调整TTL设置
+            3. 优化缓存键设计
+            4. 预热热点数据
+          runbook_url: "https://monitoring.cjystx.top/runbooks/redis-low-hit-ratio"
+      
+      # Redis键过期速度过快
+      - alert: RedisHighExpirationRate
+        expr: |
+          rate(redis_expired_keys_total[5m]) > 100
+        for: 2m
+        labels:
+          severity: warning
+          component: cache
+          service: redis
+          team: sre
+        annotations:
+          summary: "Redis键过期速度过快"
+          description: |
+            Redis键过期速度超过100个/秒，当前值: {{ printf "%.2f" $value }}/秒
+            实例: {{ $labels.instance }}
+            
+            影响：
+            - 缓存数据频繁失效
+            - 可能影响性能
+            - 数据库压力增加
+            
+            建议操作：
+            1. 检查TTL设置
+            2. 分析过期模式
+            3. 调整过期策略
+            4. 优化数据生命周期
+          runbook_url: "https://monitoring.cjystx.top/runbooks/redis-high-expiration"
+      
+      # Redis阻塞操作过多
+      - alert: RedisHighBlockedClients
+        expr: redis_blocked_clients > 5
+        for: 1m
+        labels:
+          severity: warning
+          component: cache
+          service: redis
+          team: sre
+        annotations:
+          summary: "Redis阻塞客户端过多"
+          description: |
+            Redis阻塞客户端数超过5，当前值: {{ $value }}
+            实例: {{ $labels.instance }}
+            
+            影响：
+            - 客户端等待时间增加
+            - 可能导致超时
+            - 整体性能下降
+            
+            建议操作：
+            1. 检查阻塞命令
+            2. 优化数据结构
+            3. 避免长时间阻塞操作
+            4. 调整超时设置
+          runbook_url: "https://monitoring.cjystx.top/runbooks/redis-blocked-clients"
+      
+      # Redis持久化失败
+      - alert: RedisPersistenceFailure
+        expr: |
+          increase(redis_rdb_last_save_timestamp_seconds[1h]) == 0 and redis_rdb_last_save_timestamp_seconds > 0
+        for: 0s
+        labels:
+          severity: critical
+          component: cache
+          service: redis
+          team: sre
+        annotations:
+          summary: "Redis持久化失败"
+          description: |
+            Redis在过去1小时内没有成功保存RDB快照
+            上次保存时间: {{ with query "redis_rdb_last_save_timestamp_seconds" }}{{ . | first | value | humanizeTimestamp }}{{ end }}
+            实例: {{ $labels.instance }}
+            
+            影响：
+            - 数据持久化风险
+            - 重启后数据丢失
+            - 备份策略失效
+            
+            紧急操作：
+            1. 检查磁盘空间
+            2. 检查文件权限
+            3. 手动执行BGSAVE
+            4. 检查Redis日志
+          runbook_url: "https://monitoring.cjystx.top/runbooks/redis-persistence-failure"
+      
+      # Redis主从复制中断
+      - alert: RedisReplicationBroken
+        expr: |
+          redis_connected_slaves == 0 and redis_master_repl_offset > 0
+        for: 1m
+        labels:
+          severity: critical
+          component: cache
+          service: redis
+          team: sre
+        annotations:
+          summary: "Redis主从复制中断"
+          description: |
+            Redis主从复制连接中断，从库数量为0
+            实例: {{ $labels.instance }}
+            
+            影响：
+            - 高可用性降低
+            - 故障切换风险
+            - 数据一致性风险
+            
+            紧急操作：
+            1. 检查从库状态
+            2. 检查网络连接
+            3. 重启复制连接
+            4. 检查复制配置
+          runbook_url: "https://monitoring.cjystx.top/runbooks/redis-replication-broken"
