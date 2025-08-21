@@ -83,6 +83,10 @@ registration_shared_secret: "${REGISTRATION_SHARED_SECRET}"
 registration_requires_token: false
 enable_registration_without_verification: true
 
+# 验证码配置
+captcha:
+  enable_registration_captcha: false
+
 # 安全配置
 macaroon_secret_key: "${MACAROON_SECRET_KEY}"
 form_secret: "${FORM_SECRET}"
