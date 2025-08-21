@@ -1,4 +1,4 @@
-FROM python:3.11-alpine AS builder
+FROM python:3.13-alpine AS builder
 
 # 设置构建参数 (Set build arguments)
 ARG SYNAPSE_VERSION=latest
@@ -78,7 +78,7 @@ RUN pip install --no-cache-dir \
 RUN apk del .build-deps
 
 # 运行阶段 (Runtime stage)
-FROM python:3.11-alpine AS runtime
+FROM python:3.13-alpine AS runtime
 
 # 设置环境变量 (Set environment variables)
 ENV PYTHONUNBUFFERED=1 \
