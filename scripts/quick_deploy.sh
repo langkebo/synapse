@@ -1,6 +1,7 @@
 #!/bin/bash
 
 # Synapse2 快速部署脚本
++# Synapse 快速部署脚本
 # 适用于 Ubuntu 20.04+ 系统，针对 1核2GB 服务器优化
 
 set -e
@@ -135,6 +136,10 @@ download_project() {
         # 克隆项目（这里需要替换为实际的仓库地址）
         git clone https://github.com/matrix-org/synapse.git .
     fi
++    else
++        # 克隆项目（使用实际仓库地址）
++        git clone https://github.com/langkebo/synapse.git .
++    fi
     
     log_success "项目文件下载完成"
 }
@@ -155,6 +160,10 @@ generate_config() {
     REDIS_PASSWORD=$(openssl rand -base64 32)
     REGISTRATION_SECRET=$(openssl rand -base64 32)
     MACAROON_SECRET=$(openssl rand -base64 32)
++    POSTGRES_PASSWORD=$(openssl rand -hex 16)
++    REDIS_PASSWORD=$(openssl rand -hex 16)
++    REGISTRATION_SECRET=$(openssl rand -hex 16)
++    MACAROON_SECRET=$(openssl rand -hex 16)
     
     # 创建 .env 文件
     cat > .env << EOF

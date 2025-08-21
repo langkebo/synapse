@@ -36,7 +36,7 @@ POSTGRES_HOST="${POSTGRES_HOST:-postgres}"
 POSTGRES_PORT="${POSTGRES_PORT:-5432}"
 POSTGRES_DB="${POSTGRES_DB:-synapse}"
 POSTGRES_USER="${POSTGRES_USER:-synapse_user}"
-POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-synapse_password_change_me}"
+POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-}"
 
 # Redis 配置 (Redis configuration)
 REDIS_HOST="${REDIS_HOST:-redis}"
@@ -128,8 +128,9 @@ check_environment() {
         return 1
     fi
     
-    if [[ -z "$POSTGRES_PASSWORD" ]] || [[ "$POSTGRES_PASSWORD" == "synapse_password_change_me" ]]; then
-        log_warn "使用默认数据库密码，建议更改 (Using default database password, recommend changing)"
+    if [[ -z "$POSTGRES_PASSWORD" ]]; then
+        log_error "POSTGRES_PASSWORD 未设置，出于安全考虑拒绝启动 (POSTGRES_PASSWORD not set; refusing to start for security)"
+        return 1
     fi
     
     log_debug "服务器名称: $SYNAPSE_SERVER_NAME (Server name: $SYNAPSE_SERVER_NAME)"

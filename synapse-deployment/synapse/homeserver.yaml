@@ -206,7 +206,19 @@ password_config:
 # cas_config: {}
 
 # 模块配置
-modules: []
+modules:
+  - module: synapse.custom_modules.registration_spam_checker.RegistrationSpamChecker
+    config:
+      deny_email_domains: ["mailinator.com", "10minutemail.com", "guerrillamail.com"]
+      allow_email_domains: []
+      deny_username_regexes:
+        - "^admin$"
+        - "^root$"
+        - "^support$"
+      min_username_length: 3
+      max_username_length: 64
+      require_user_agent: true
+      shadow_ban_instead_of_deny: false
 
 # 签名密钥文件
 signing_key_path: "/data/signing.key"
