@@ -4,6 +4,8 @@
 # things to include
 !docker
 !synapse
+!synapse-deployment
+!synapse-deployment/**
 !rust
 !README.rst
 !pyproject.toml
