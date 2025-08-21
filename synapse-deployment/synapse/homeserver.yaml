@@ -78,8 +78,10 @@ caches:
     get_current_hosts_in_room: 1.0
 
 # 注册配置
-enable_registration: "${ENABLE_REGISTRATION}"
+enable_registration: true
 registration_shared_secret: "${REGISTRATION_SHARED_SECRET}"
+registration_requires_token: false
+enable_registration_without_verification: true
 
 # 安全配置
 macaroon_secret_key: "${MACAROON_SECRET_KEY}"
