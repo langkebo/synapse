@@ -2,10 +2,14 @@
 
 # Synapse Matrix 服务器启动脚本
 # 适用于 Ubuntu 服务器 (1核2GB)
-# 版本: 3.0
-# 更新时间: 2024-01-15
+# 版本: 3.1
+# 更新时间: 2025-08-21
 
 set -euo pipefail
+
+# 解析脚本所在目录与部署目录（允许从任意目录调用脚本）
+SCRIPT_DIR=$(cd -- "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)
+DEPLOY_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 # 颜色定义
 RED='\033[0;31m'
@@ -14,10 +18,11 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# 配置变量
-DOMAIN_NAME="yourdomain.com"
-MATRIX_DOMAIN="matrix.yourdomain.com"
-MONITORING_DOMAIN="monitoring.yourdomain.com"
+# 配置变量（支持通过环境变量覆盖，或使用脚本参数覆盖）
+DOMAIN_NAME="${DOMAIN_NAME:-cjystx.top}"
+MATRIX_DOMAIN="${MATRIX_DOMAIN:-matrix.${DOMAIN_NAME}}"
+ELEMENT_DOMAIN="${ELEMENT_DOMAIN:-element.${DOMAIN_NAME}}"
+MONITORING_DOMAIN="${MONITORING_DOMAIN:-monitoring.${DOMAIN_NAME}}"
 
 # Docker Compose 命令（自动探测）
 COMPOSE_CMD=""
@@ -39,6 +44,49 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+# 新增：参数解析函数
+parse_args() {
+    while getopts ":d:m:e:o:" opt; do
+        case "${opt}" in
+            d) DOMAIN_NAME="$OPTARG" ;;
+            m) MATRIX_DOMAIN="$OPTARG" ;;
+            e) ELEMENT_DOMAIN="$OPTARG" ;;
+            o) MONITORING_DOMAIN="$OPTARG" ;;
+            *) ;;
+        esac
+    done
+
+    # 根据主域名自动派生未显式指定的子域名
+    : "${DOMAIN_NAME}"
+    : "${MATRIX_DOMAIN:=matrix.${DOMAIN_NAME}}"
+    : "${ELEMENT_DOMAIN:=element.${DOMAIN_NAME}}"
+    : "${MONITORING_DOMAIN:=monitoring.${DOMAIN_NAME}}"
+
+    export DOMAIN_NAME MATRIX_DOMAIN ELEMENT_DOMAIN MONITORING_DOMAIN
+}
+
+# 新增：项目结构校验，避免因错误的工作目录或缺失文件导致构建失败
+verify_project_structure() {
+    log_info "校验项目结构和关键文件..."
+    local missing=0
+    for f in \
+        "${DEPLOY_DIR}/docker-compose.yml" \
+        "${DEPLOY_DIR}/Dockerfile" \
+        "${DEPLOY_DIR}/requirements.txt" \
+        "${DEPLOY_DIR}/scripts/docker-entrypoint.sh" \
+        "${DEPLOY_DIR}/synapse/homeserver.yaml"; do
+        if [[ ! -f "$f" ]]; then
+            log_error "缺少文件: $f"
+            missing=1
+        fi
+    done
+    if [[ $missing -eq 1 ]]; then
+        log_error "项目结构不完整，请确认从仓库根目录克隆的代码未缺失，并在 ${DEPLOY_DIR} 下运行。"
+        exit 1
+    fi
+    log_success "项目结构校验通过"
+}
+
 # 生成随机密码函数
 generate_password() {
     local length=${1:-32}
@@ -54,24 +102,28 @@ generate_env_file() {
         cp .env .env.backup
     fi
     
-    # 生成随机密码
+    # 生成随机密码/密钥
     POSTGRES_PASSWORD=$(generate_password 32)
     REDIS_PASSWORD=$(generate_password 32)
     GRAFANA_PASSWORD=$(generate_password 32)
     SMTP_PASSWORD=$(generate_password 32)
-    SYNAPSE_REGISTRATION_SECRET=$(generate_password 32)
+    REGISTRATION_SHARED_SECRET=$(generate_password 32)
+    MACAROON_SECRET_KEY=$(generate_password 64)
+    FORM_SECRET=$(generate_password 64)
     
-    # 创建 .env 文件
+    # 创建 .env 文件（尽可能覆盖 homeserver.yaml 和 docker-compose.yml 使用到的环境变量）
     cat > .env << EOF
 # =============================================================================
 # Synapse Matrix 服务器配置文件
 # 域名: ${DOMAIN_NAME}
 # Matrix 服务器: ${MATRIX_DOMAIN}
+# Element Web: ${ELEMENT_DOMAIN}
 # 生成时间: $(date '+%Y-%m-%d %H:%M:%S')
 # =============================================================================
 
 # Synapse服务器域名
 SYNAPSE_SERVER_NAME=${MATRIX_DOMAIN}
+ELEMENT_DOMAIN=${ELEMENT_DOMAIN}
 
 # 管理员邮箱
 SYNAPSE_ADMIN_EMAIL=admin@${DOMAIN_NAME}
@@ -111,6 +163,10 @@ GRAFANA_PASSWORD=${GRAFANA_PASSWORD}
 PROMETHEUS_RETENTION_TIME=15d
 PROMETHEUS_STORAGE_RETENTION_SIZE=1GB
 
+# 功能开关
+ENABLE_METRICS=true
+REPORT_STATS=no
+
 # =============================================================================
 # 网络配置
 # =============================================================================
@@ -133,7 +189,7 @@ LETSENCRYPT_EMAIL=admin@${DOMAIN_NAME}
 LETSENCRYPT_DOMAIN=${MATRIX_DOMAIN}
 
 # =============================================================================
-# 邮件配置
+# 邮件配置（当前开放注册不需要邮箱验证，可保留以便未来启用）
 # =============================================================================
 
 # SMTP服务器配置
@@ -147,11 +203,26 @@ SMTP_FROM=noreply@${DOMAIN_NAME}
 # Synapse 特定配置
 # =============================================================================
 
-# 注册共享密钥
-SYNAPSE_REGISTRATION_SHARED_SECRET=${SYNAPSE_REGISTRATION_SECRET}
+# 注册共享密钥（用于管理员生成注册token；当前配置为开放注册，暂不要求token）
+REGISTRATION_SHARED_SECRET=${REGISTRATION_SHARED_SECRET}
+
+# 其他密钥
+MACAROON_SECRET_KEY=${MACAROON_SECRET_KEY}
+FORM_SECRET=${FORM_SECRET}
+
+# 性能及上传大小
+SYNAPSE_MAX_UPLOAD_SIZE=50M
+SYNAPSE_CACHE_FACTOR=0.5
+SYNAPSE_EVENT_CACHE_SIZE=5K
+
+# 好友功能（与 homeserver.yaml 保持一致）
+FRIENDS_ENABLED=true
+MAX_FRIENDS_PER_USER=500
+FRIEND_REQUEST_TIMEOUT_DAYS=7
+AUTO_ACCEPT_FRIENDS=false
 
 # =============================================================================
-# 资源限制配置
+# 资源限制配置（用于文档/外部脚本参考；docker-compose 已内置）
 # =============================================================================
 
 # 内存限制 (适用于1核2GB服务器)
@@ -171,8 +242,7 @@ GRAFANA_CPU_LIMIT=0.2
 PROMETHEUS_CPU_LIMIT=0.3
 EOF
 
-    log_success "环境配置文件已生成: .env"
-    log_info "生成的密码已保存到 .env 文件中"
+    log_success ".env 已生成（包含开放注册、无邮箱验证、无验证码所需配置）"
 }
 
 # 检查Docker和Docker Compose
@@ -381,8 +451,14 @@ show_access_info() {
     log_info "服务访问地址："
     echo "  Matrix客户端API: https://${SYNAPSE_SERVER_NAME:-localhost}:443"
     echo "  Matrix联邦API:   https://${SYNAPSE_SERVER_NAME:-localhost}:8448"
+    echo "  Element Web:      https://${ELEMENT_DOMAIN:-element.localhost}"
     echo "  Grafana监控:     http://localhost:3000 (admin/${GRAFANA_PASSWORD:-admin_secure_password_2024})"
     echo "  Prometheus:      http://localhost:9091"
+    echo
+    log_info "注册与安全配置："
+    echo "  开放注册: 已启用"
+    echo "  邮箱验证: 已关闭"
+    echo "  验证码:   已关闭"
     echo
     log_info "好友功能API端点："
     echo "  发送好友请求:    POST /_matrix/client/r0/friends/request"
@@ -410,6 +486,15 @@ show_access_info() {
 main() {
     log_info "开始部署Synapse Matrix服务器（包含好友功能）"
     echo
+    
+    # 解析参数（可覆盖默认域名配置）
+    parse_args "$@"
+
+    # 固定工作目录到部署目录，避免误用仓库根目录的 docker-compose.yml
+    log_info "将工作目录固定为部署目录: ${DEPLOY_DIR}"
+    cd "${DEPLOY_DIR}"
+
+    verify_project_structure
     
     check_dependencies
     
