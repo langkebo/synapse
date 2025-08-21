@@ -24,8 +24,8 @@ RUN apt-get update && apt-get install -y \
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# 升级pip和安装wheel
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel
+# 升级pip和安装wheel + poetry-core（满足PEP517构建后端）
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel poetry-core
 
 # 复制requirements文件（注意：构建上下文为仓库根目录）
 COPY synapse-deployment/requirements.txt /tmp/requirements.txt
@@ -40,8 +40,8 @@ WORKDIR /tmp/synapse
 # 复制好友功能扩展代码（仓库根目录存在 synapse/ 上游源码目录）
 COPY ./synapse/ /tmp/synapse/
 
-# 安装Synapse
-RUN pip install --no-cache-dir -e .
+# 安装Synapse（禁用构建隔离，以便使用上一步安装的依赖，如 Pillow）
+RUN pip install --no-cache-dir --no-build-isolation -e .
 
 # 运行时镜像
 FROM python:3.11-slim as runtime
