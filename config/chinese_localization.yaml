@@ -1,0 +1,173 @@
+# Synapse2 中文本地化配置
+# 中文错误消息和用户界面文本
+
+# 基本配置
+localization:
+  default_language: zh_CN
+  supported_languages:
+    - zh_CN
+    - en_US
+  encoding: utf-8
+
+# 好友功能中文消息
+friends_messages:
+  # 成功消息
+  friend_request_sent: "好友请求已发送"
+  friend_request_accepted: "好友请求已接受"
+  friend_request_rejected: "好友请求已拒绝"
+  friend_removed: "好友已删除"
+  friend_added: "好友添加成功"
+  
+  # 错误消息
+  user_not_found: "用户不存在"
+  already_friends: "你们已经是好友了"
+  friend_request_exists: "好友请求已存在"
+  friend_request_not_found: "好友请求不存在"
+  cannot_add_self: "不能添加自己为好友"
+  max_friends_reached: "好友数量已达上限"
+  permission_denied: "权限不足"
+  invalid_user_id: "无效的用户ID"
+  friend_not_found: "好友不存在"
+  
+  # 状态消息
+  pending: "待处理"
+  accepted: "已接受"
+  rejected: "已拒绝"
+  blocked: "已屏蔽"
+  
+  # 通知消息
+  new_friend_request: "收到新的好友请求"
+  friend_request_accepted_notification: "你的好友请求已被接受"
+  friend_online: "好友上线了"
+  friend_offline: "好友离线了"
+
+# 系统错误消息
+system_messages:
+  # 认证错误
+  invalid_token: "无效的访问令牌"
+  token_expired: "访问令牌已过期"
+  unauthorized: "未授权访问"
+  forbidden: "禁止访问"
+  
+  # 服务器错误
+  internal_error: "服务器内部错误"
+  service_unavailable: "服务暂时不可用"
+  database_error: "数据库错误"
+  network_error: "网络连接错误"
+  
+  # 请求错误
+  invalid_request: "无效的请求"
+  missing_parameter: "缺少必需参数"
+  invalid_parameter: "参数格式错误"
+  request_too_large: "请求数据过大"
+  rate_limit_exceeded: "请求频率超限"
+  
+  # 用户错误
+  user_not_found: "用户不存在"
+  room_not_found: "房间不存在"
+  event_not_found: "事件不存在"
+  
+# 用户界面文本
+ui_text:
+  # 按钮文本
+  buttons:
+    accept: "接受"
+    reject: "拒绝"
+    send: "发送"
+    cancel: "取消"
+    confirm: "确认"
+    delete: "删除"
+    block: "屏蔽"
+    unblock: "取消屏蔽"
+    
+  # 标签文本
+  labels:
+    friends: "好友"
+    friend_requests: "好友请求"
+    online_friends: "在线好友"
+    offline_friends: "离线好友"
+    blocked_users: "已屏蔽用户"
+    search_friends: "搜索好友"
+    
+  # 占位符文本
+  placeholders:
+    search_user: "输入用户名或ID搜索"
+    friend_request_message: "输入好友请求消息（可选）"
+    
+  # 提示文本
+  tips:
+    no_friends: "暂无好友，快去添加一些好友吧！"
+    no_requests: "暂无好友请求"
+    search_no_results: "没有找到匹配的用户"
+    loading: "加载中..."
+
+# 邮件模板
+email_templates:
+  friend_request:
+    subject: "新的好友请求 - {sender_name}"
+    body: |
+      你好 {recipient_name}，
+      
+      {sender_name} 向你发送了好友请求。
+      
+      消息：{message}
+      
+      请登录查看详情。
+      
+      此邮件由系统自动发送，请勿回复。
+      
+  friend_accepted:
+    subject: "好友请求已接受 - {accepter_name}"
+    body: |
+      你好 {requester_name}，
+      
+      {accepter_name} 已接受你的好友请求。
+      
+      现在你们可以开始聊天了！
+      
+      此邮件由系统自动发送，请勿回复。
+
+# 推送通知文本
+push_notifications:
+  friend_request:
+    title: "新的好友请求"
+    body: "{sender_name} 向你发送了好友请求"
+    
+  friend_accepted:
+    title: "好友请求已接受"
+    body: "{accepter_name} 接受了你的好友请求"
+    
+  friend_online:
+    title: "好友上线"
+    body: "{friend_name} 上线了"
+
+# 日期时间格式
+date_formats:
+  short_date: "%m月%d日"
+  long_date: "%Y年%m月%d日"
+  short_time: "%H:%M"
+  long_time: "%H:%M:%S"
+  datetime: "%Y年%m月%d日 %H:%M"
+  relative_time:
+    just_now: "刚刚"
+    minutes_ago: "{minutes}分钟前"
+    hours_ago: "{hours}小时前"
+    days_ago: "{days}天前"
+    weeks_ago: "{weeks}周前"
+    months_ago: "{months}个月前"
+
+# 数字格式
+number_formats:
+  thousands_separator: ","
+  decimal_separator: "."
+  currency_symbol: "¥"
+
+# 验证消息
+validation_messages:
+  required_field: "此字段为必填项"
+  invalid_email: "邮箱格式不正确"
+  invalid_username: "用户名格式不正确"
+  password_too_short: "密码长度不能少于8位"
+  password_too_weak: "密码强度不够"
+  username_taken: "用户名已被占用"
+  email_taken: "邮箱已被注册"

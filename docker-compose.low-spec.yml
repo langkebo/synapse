@@ -1,0 +1,136 @@
+# Synapse2 Docker Compose 配置
+# 针对 1核2GB 服务器的优化配置
+
+version: '3.8'
+
+services:
+  synapse:
+    build:
+      context: .
+      dockerfile: Dockerfile.low-spec
+    container_name: synapse2_lowspec
+    restart: unless-stopped
+    ports:
+      - "8008:8008"
+    volumes:
+      - ./data:/data
+      - ./config:/config:ro
+      - ./homeserver.yaml:/data/homeserver.yaml:ro
+    environment:
+      - SYNAPSE_SERVER_NAME=localhost
+      - SYNAPSE_REPORT_STATS=no
+      - SYNAPSE_CONFIG_PATH=/data/homeserver.yaml
+      - PYTHONUNBUFFERED=1
+      - SYNAPSE_CACHE_FACTOR=0.5
+    # 内存限制 (1.5GB)
+    mem_limit: 1536m
+    mem_reservation: 512m
+    # CPU 限制 (0.8 核)
+    cpus: '0.8'
+    networks:
+      - synapse_network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8008/health')"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 60s
+    # 优化启动顺序
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  redis:
+    image: redis:7-alpine
+    container_name: synapse2_redis_lowspec
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    networks:
+      - synapse_network
+    # Redis 内存限制 (128MB)
+    mem_limit: 128m
+    mem_reservation: 64m
+    cpus: '0.1'
+    command: |
+      redis-server
+      --appendonly yes
+      --maxmemory 96mb
+      --maxmemory-policy allkeys-lru
+      --save 900 1
+      --save 300 10
+      --save 60 10000
+      --tcp-keepalive 60
+      --timeout 300
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # 轻量级反向代理 (使用 Caddy 替代 Nginx)
+  caddy:
+    image: caddy:2-alpine
+    container_name: synapse2_caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+      - ./data/media_store:/var/www/media:ro
+    depends_on:
+      synapse:
+        condition: service_healthy
+    networks:
+      - synapse_network
+    # Caddy 资源限制
+    mem_limit: 128m
+    mem_reservation: 32m
+    cpus: '0.1'
+    healthcheck:
+      test: ["CMD", "caddy", "validate", "--config", "/etc/caddy/Caddyfile"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # 可选：轻量级监控 (仅在需要时启用)
+  # watchtower:
+  #   image: containrrr/watchtower
+  #   container_name: synapse2_watchtower
+  #   restart: unless-stopped
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock
+  #   environment:
+  #     - WATCHTOWER_CLEANUP=true
+  #     - WATCHTOWER_POLL_INTERVAL=86400
+  #   mem_limit: 64m
+  #   cpus: '0.05'
+
+volumes:
+  redis_data:
+    driver: local
+  caddy_data:
+    driver: local
+  caddy_config:
+    driver: local
+
+networks:
+  synapse_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16
+
+# 全局资源限制
+x-resource-limits: &resource-limits
+  mem_limit: 2048m  # 总内存限制 2GB
+  
+# 环境变量模板
+x-common-env: &common-env
+  TZ: Asia/Shanghai
+  LANG: zh_CN.UTF-8
+  LC_ALL: zh_CN.UTF-8

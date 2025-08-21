@@ -1,0 +1,218 @@
+# Synapse2 Caddy 配置文件
+# 轻量级反向代理配置，适用于低配置服务器
+
+# 全局配置
+{
+    # 管理员邮箱
+    email admin@localhost
+    
+    # 自动 HTTPS 配置
+    auto_https off
+    
+    # 日志配置
+    log {
+        output file /var/log/caddy/access.log {
+            roll_size 10MB
+            roll_keep 5
+        }
+        format json
+        level INFO
+    }
+    
+    # 错误日志
+    log {
+        output file /var/log/caddy/error.log {
+            roll_size 10MB
+            roll_keep 5
+        }
+        format json
+        level ERROR
+    }
+}
+
+# 主站点配置
+localhost {
+    # 反向代理到 Synapse
+    reverse_proxy /_matrix/* synapse:8008 {
+        # 健康检查
+        health_uri /health
+        health_interval 30s
+        health_timeout 10s
+        
+        # 请求头设置
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Forwarded-Host {host}
+        
+        # 超时设置
+        transport http {
+            dial_timeout 10s
+            response_header_timeout 30s
+            read_timeout 60s
+            write_timeout 60s
+        }
+    }
+    
+    # 媒体文件直接服务
+    handle /_matrix/media/* {
+        root * /var/www/media
+        file_server {
+            hide .htaccess
+        }
+        
+        # 缓存设置
+        header Cache-Control "public, max-age=86400"
+        header X-Content-Type-Options nosniff
+    }
+    
+    # 客户端 API
+    handle /_matrix/client/* {
+        reverse_proxy synapse:8008 {
+            header_up Host {host}
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+    
+    # 联邦 API
+    handle /_matrix/federation/* {
+        reverse_proxy synapse:8008 {
+            header_up Host {host}
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+    
+    # 好友 API
+    handle /_matrix/client/*/friends/* {
+        reverse_proxy synapse:8008 {
+            header_up Host {host}
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+            
+            # 好友功能特殊超时设置
+            transport http {
+                dial_timeout 5s
+                response_header_timeout 15s
+                read_timeout 30s
+                write_timeout 30s
+            }
+        }
+    }
+    
+    # 健康检查端点
+    handle /health {
+        reverse_proxy synapse:8008
+    }
+    
+    # 静态文件服务
+    handle /static/* {
+        root * /var/www
+        file_server
+        
+        # 静态文件缓存
+        header Cache-Control "public, max-age=31536000"
+        header X-Content-Type-Options nosniff
+    }
+    
+    # 默认处理 - 重定向到客户端
+    handle {
+        redir https://app.element.io permanent
+    }
+    
+    # 错误页面
+    handle_errors {
+        @5xx expression {http.error.status_code} >= 500
+        handle @5xx {
+            respond "服务器内部错误，请稍后重试" 500
+        }
+        
+        @4xx expression {http.error.status_code} >= 400
+        handle @4xx {
+            respond "请求错误" 400
+        }
+    }
+    
+    # 安全头设置
+    header {
+        # 安全头
+        X-Frame-Options DENY
+        X-Content-Type-Options nosniff
+        X-XSS-Protection "1; mode=block"
+        Referrer-Policy strict-origin-when-cross-origin
+        
+        # CORS 头 (Matrix 需要)
+        Access-Control-Allow-Origin *
+        Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
+        Access-Control-Allow-Headers "Origin, X-Requested-With, Content-Type, Accept, Authorization"
+        
+        # 移除服务器信息
+        -Server
+    }
+    
+    # 压缩配置
+    encode {
+        gzip 6
+        minimum_length 1024
+        match {
+            header Content-Type application/json*
+            header Content-Type application/javascript*
+            header Content-Type text/*
+        }
+    }
+    
+    # 速率限制
+    rate_limit {
+        zone dynamic {
+            key {remote_host}
+            events 100
+            window 1m
+        }
+        
+        zone api {
+            key {remote_host}
+            events 50
+            window 1m
+            match {
+                path /_matrix/client/*
+            }
+        }
+    }
+}
+
+# HTTPS 配置 (生产环境)
+# your-domain.com {
+#     reverse_proxy /_matrix/* synapse:8008 {
+#         header_up Host {host}
+#         header_up X-Real-IP {remote_host}
+#         header_up X-Forwarded-For {remote_host}
+#         header_up X-Forwarded-Proto {scheme}
+#     }
+#     
+#     # 自动 HTTPS
+#     tls {
+#         protocols tls1.2 tls1.3
+#     }
+# }
+
+# 监控端点 (内部使用)
+:2019 {
+    metrics /metrics
+    
+    # 仅允许内部访问
+    @internal {
+        remote_ip 127.0.0.1 ::1 172.16.0.0/12 192.168.0.0/16
+    }
+    handle @internal {
+        metrics
+    }
+    
+    handle {
+        respond "Forbidden" 403
+    }
+}

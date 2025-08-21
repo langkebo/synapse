@@ -1,0 +1,303 @@
+# Docker Compose 配置文件 - 低配置服务器优化版
+# Docker Compose Configuration - Low Specification Server Optimized
+#
+# 适用于 1核2GB 内存的服务器环境
+# Suitable for 1-core 2GB memory server environment
+#
+# 包含服务 (Included Services):
+# - Synapse Matrix 服务器 (Synapse Matrix Server)
+# - PostgreSQL 数据库 (PostgreSQL Database)
+# - Redis 缓存 (Redis Cache)
+# - Nginx 反向代理 (Nginx Reverse Proxy)
+# - 系统监控 (System Monitoring)
+
+version: '3.8'
+
+services:
+  # PostgreSQL 数据库服务 (PostgreSQL Database Service)
+  postgres:
+    image: postgres:13-alpine
+    container_name: synapse_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: synapse
+      POSTGRES_USER: synapse_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-synapse_password_change_me}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+      - ./postgres/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    networks:
+      - synapse_network
+    # 资源限制 - 针对低配置服务器优化 (Resource limits - optimized for low-spec servers)
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.2'
+    # PostgreSQL 优化配置 (PostgreSQL optimization configuration)
+    command: |
+      postgres
+      -c shared_buffers=128MB
+      -c effective_cache_size=256MB
+      -c maintenance_work_mem=32MB
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=4MB
+      -c default_statistics_target=100
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=200
+      -c work_mem=2MB
+      -c min_wal_size=1GB
+      -c max_wal_size=2GB
+      -c max_connections=50
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U synapse_user -d synapse"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Redis 缓存服务 (Redis Cache Service)
+  redis:
+    image: redis:7-alpine
+    container_name: synapse_redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    networks:
+      - synapse_network
+    # 资源限制 (Resource limits)
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.3'
+        reservations:
+          memory: 128M
+          cpus: '0.1'
+    # Redis 优化配置 (Redis optimization configuration)
+    command: |
+      redis-server /usr/local/etc/redis/redis.conf
+      --maxmemory 200mb
+      --maxmemory-policy allkeys-lru
+      --save 900 1
+      --save 300 10
+      --save 60 10000
+      --tcp-keepalive 300
+      --timeout 0
+      --databases 16
+      --hz 10
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Synapse Matrix 服务器 (Synapse Matrix Server)
+  synapse:
+    build:
+      context: .
+      dockerfile: Dockerfile.low-spec
+      args:
+        SYNAPSE_VERSION: ${SYNAPSE_VERSION:-latest}
+    container_name: synapse_homeserver
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      SYNAPSE_SERVER_NAME: ${SYNAPSE_SERVER_NAME:-matrix.example.com}
+      SYNAPSE_REPORT_STATS: ${SYNAPSE_REPORT_STATS:-no}
+      SYNAPSE_CONFIG_DIR: /data
+      SYNAPSE_CONFIG_PATH: /data/homeserver.yaml
+      SYNAPSE_DATA_DIR: /data
+      # 数据库配置 (Database configuration)
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: synapse
+      POSTGRES_USER: synapse_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-synapse_password_change_me}
+      # Redis 配置 (Redis configuration)
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      # 性能优化环境变量 (Performance optimization environment variables)
+      SYNAPSE_CACHE_FACTOR: 0.5
+      SYNAPSE_EVENT_CACHE_SIZE: 5K
+      SYNAPSE_GLOBAL_CACHE_FACTOR: 0.5
+      # JVM 内存限制 (JVM memory limits)
+      JAVA_OPTS: "-Xmx512m -Xms256m"
+      # Python 优化 (Python optimization)
+      PYTHONOPTIMIZE: 1
+      PYTHONUNBUFFERED: 1
+    volumes:
+      - synapse_data:/data
+      - ./conf/homeserver-performance.yaml:/data/homeserver.yaml:ro
+      - ./conf/log.config:/data/log.config:ro
+      - ./scripts:/scripts:ro
+      - /etc/localtime:/etc/localtime:ro
+    networks:
+      - synapse_network
+    ports:
+      - "8008:8008"  # HTTP 端口 (HTTP port)
+      - "8448:8448"  # HTTPS 联邦端口 (HTTPS federation port)
+    # 资源限制 (Resource limits)
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.8'
+        reservations:
+          memory: 512M
+          cpus: '0.4'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8008/health"]
+      interval: 60s
+      timeout: 30s
+      retries: 3
+      start_period: 120s
+    # 启动命令 (Startup command)
+    command: |
+      sh -c '
+        echo "等待数据库和 Redis 就绪... (Waiting for database and Redis to be ready...)"
+        sleep 30
+        echo "开始缓存预热... (Starting cache warmup...)"
+        python /scripts/cache_warmup.py --config /data/homeserver.yaml --quiet || true
+        echo "启动 Synapse 服务... (Starting Synapse service...)"
+        python -m synapse.app.homeserver --config-path=/data/homeserver.yaml
+      '
+
+  # Nginx 反向代理 (Nginx Reverse Proxy)
+  nginx:
+    image: nginx:alpine
+    container_name: synapse_nginx
+    restart: unless-stopped
+    depends_on:
+      - synapse
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/synapse.conf:/etc/nginx/conf.d/synapse.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+      - nginx_logs:/var/log/nginx
+    networks:
+      - synapse_network
+    ports:
+      - "80:80"    # HTTP 端口 (HTTP port)
+      - "443:443"  # HTTPS 端口 (HTTPS port)
+    # 资源限制 (Resource limits)
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.2'
+        reservations:
+          memory: 64M
+          cpus: '0.1'
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # 系统监控服务 (System Monitoring Service)
+  monitor:
+    build:
+      context: .
+      dockerfile: Dockerfile.monitor
+    container_name: synapse_monitor
+    restart: unless-stopped
+    depends_on:
+      - synapse
+      - postgres
+      - redis
+    environment:
+      MONITOR_CONFIG: /config/monitor.yaml
+      SYNAPSE_CONFIG: /data/homeserver.yaml
+      LOG_LEVEL: INFO
+    volumes:
+      - ./conf/monitor.yaml:/config/monitor.yaml:ro
+      - ./conf/homeserver-performance.yaml:/data/homeserver.yaml:ro
+      - monitor_data:/data
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /etc/localtime:/etc/localtime:ro
+    networks:
+      - synapse_network
+    # 资源限制 (Resource limits)
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.2'
+        reservations:
+          memory: 64M
+          cpus: '0.1'
+    command: |
+      sh -c '
+        echo "等待 Synapse 服务启动... (Waiting for Synapse service to start...)"
+        sleep 60
+        echo "启动系统监控... (Starting system monitoring...)"
+        python /scripts/system_monitor.py --config /data/homeserver.yaml --docker
+      '
+
+# 网络配置 (Network configuration)
+networks:
+  synapse_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+    driver_opts:
+      com.docker.network.bridge.name: synapse_br
+
+# 数据卷配置 (Volume configuration)
+volumes:
+  # PostgreSQL 数据 (PostgreSQL data)
+  postgres_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DATA_DIR:-./data}/postgres
+  
+  # Redis 数据 (Redis data)
+  redis_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DATA_DIR:-./data}/redis
+  
+  # Synapse 数据 (Synapse data)
+  synapse_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DATA_DIR:-./data}/synapse
+  
+  # Nginx 日志 (Nginx logs)
+  nginx_logs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${LOG_DIR:-./logs}/nginx
+  
+  # 监控数据 (Monitor data)
+  monitor_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DATA_DIR:-./data}/monitor

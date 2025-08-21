@@ -1,0 +1,159 @@
+FROM python:3.11-alpine AS builder
+
+# 设置构建参数 (Set build arguments)
+ARG SYNAPSE_VERSION=latest
+ARG BUILD_DATE
+ARG VCS_REF
+
+# 添加标签 (Add labels)
+
+# 设置环境变量 (Set environment variables)
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONOPTIMIZE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8
+
+# 安装构建依赖 (Install build dependencies)
+RUN apk add --no-cache --virtual .build-deps \
+        gcc \
+        g++ \
+        musl-dev \
+        libffi-dev \
+        openssl-dev \
+        rust \
+        cargo \
+        postgresql-dev \
+        libxml2-dev \
+        libxslt-dev \
+        zlib-dev \
+        jpeg-dev \
+        freetype-dev \
+        git \
+        make \
+        pkgconfig
+
+# 安装运行时依赖 (Install runtime dependencies)
+RUN apk add --no-cache \
+        libpq \
+        libxml2 \
+        libxslt \
+        zlib \
+        jpeg \
+        freetype \
+        ca-certificates \
+        tzdata \
+        curl \
+        bash \
+        su-exec
+
+# 设置工作目录 (Set working directory)
+WORKDIR /synapse
+
+# 复制源代码 (Copy source code)
+COPY . /synapse/
+
+# 升级 pip 和安装构建工具 (Upgrade pip and install build tools)
+RUN pip install --upgrade pip setuptools wheel
+
+# 安装 Synapse 和依赖 (Install Synapse and dependencies)
+RUN pip install --no-cache-dir \
+        --find-links https://wheels.matrix.org/ \
+        .[all,postgres,redis] \
+    && pip install --no-cache-dir \
+        psycopg2-binary \
+        redis \
+        hiredis \
+        ujson \
+        lxml \
+        Pillow \
+        prometheus_client \
+        jaeger-client \
+        opentracing \
+        pyyaml \
+        jinja2
+
+# 清理构建依赖 (Clean up build dependencies)
+RUN apk del .build-deps
+
+# 运行阶段 (Runtime stage)
+FROM python:3.11-alpine AS runtime
+
+# 设置环境变量 (Set environment variables)
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONOPTIMIZE=1 \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    SYNAPSE_SERVER_NAME=matrix.example.com \
+    SYNAPSE_REPORT_STATS=no \
+    SYNAPSE_CONFIG_DIR=/data \
+    SYNAPSE_CONFIG_PATH=/data/homeserver.yaml \
+    SYNAPSE_DATA_DIR=/data \
+    SYNAPSE_CACHE_FACTOR=0.5 \
+    SYNAPSE_EVENT_CACHE_SIZE=5K \
+    SYNAPSE_GLOBAL_CACHE_FACTOR=0.5
+
+# 安装运行时依赖 (Install runtime dependencies)
+RUN apk add --no-cache \
+        libpq \
+        libxml2 \
+        libxslt \
+        zlib \
+        jpeg \
+        freetype \
+        ca-certificates \
+        tzdata \
+        curl \
+        bash \
+        su-exec \
+        tini \
+        shadow \
+    && rm -rf /var/cache/apk/*
+
+# 创建 synapse 用户 (Create synapse user)
+RUN addgroup -g 991 -S synapse \
+    && adduser -u 991 -S synapse -G synapse -h /data -s /bin/bash
+
+# 从构建阶段复制 Python 环境 (Copy Python environment from build stage)
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
+
+# 复制源代码和脚本 (Copy source code and scripts)
+COPY --from=builder /synapse /synapse
+COPY scripts/ /scripts/
+COPY docker/conf/ /conf/
+
+# 设置权限 (Set permissions)
+RUN chmod +x /scripts/*.py /scripts/*.sh \
+    && chown -R synapse:synapse /synapse /scripts /conf
+
+# 创建数据目录 (Create data directories)
+RUN mkdir -p /data /var/log/synapse /var/run/synapse \
+    && chown -R synapse:synapse /data /var/log/synapse /var/run/synapse
+
+# 复制启动脚本 (Copy startup script)
+COPY docker/start.sh /start.sh
+RUN chmod +x /start.sh
+
+# 设置工作目录 (Set working directory)
+WORKDIR /data
+
+# 暴露端口 (Expose ports)
+EXPOSE 8008 8448
+
+# 健康检查 (Health check)
+HEALTHCHECK --interval=60s --timeout=30s --start-period=120s --retries=3 \
+    CMD curl -f http://localhost:8008/health || exit 1
+
+# 设置数据卷 (Set volumes)
+VOLUME ["/data"]
+
+# 使用 tini 作为 init 进程 (Use tini as init process)
+ENTRYPOINT ["/sbin/tini", "--"]
+
+# 默认启动命令 (Default startup command)
+CMD ["/start.sh"]
+
+# 用户切换 (Switch to user)
+USER synapse

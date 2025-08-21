@@ -1,0 +1,134 @@
+# Synapse2 性能优化配置
+# 针对 1核2GB 服务器的性能调优
+
+# 缓存配置
+caches:
+  # 全局缓存因子 (降低内存使用)
+  global_factor: 0.5
+  
+  # 单个缓存配置
+  per_cache_factors:
+    # 用户相关缓存
+    get_users_who_share_room_with_user: 0.1
+    get_users_in_room: 0.2
+    get_user_by_id: 0.3
+    
+    # 房间相关缓存
+    get_rooms_for_user: 0.1
+    get_room_summary: 0.2
+    get_current_state_ids: 0.1
+    
+    # 事件相关缓存
+    get_event: 0.3
+    get_events: 0.2
+    
+    # 好友功能缓存
+    get_friends_for_user: 0.3
+    get_friend_requests: 0.2
+    get_friend_status: 0.3
+
+# 事件缓存大小
+event_cache_size: 5K
+
+# 数据库连接池配置
+database:
+  # SQLite 配置 (低配置服务器推荐)
+  name: sqlite3
+  args:
+    database: /data/homeserver.db
+    # SQLite 优化参数
+    cp_min: 1
+    cp_max: 3
+    cp_noisy: false
+    
+# 工作线程配置
+worker_replication_url: null
+worker_replication_http_port: null
+
+# 内存优化
+max_upload_size: 50M
+max_image_pixels: 32M
+
+# 预览功能 (关闭以节省资源)
+url_preview_enabled: false
+
+# 联邦配置优化
+federation_sender_instances: []
+federation_reader_instances: []
+
+# 推送配置优化
+push:
+  include_content: true
+  group_unread_count_by_room: false
+
+# 速率限制 (防止资源耗尽)
+rc_message:
+  per_second: 0.2
+  burst_count: 10
+
+rc_registration:
+  per_second: 0.17
+  burst_count: 3
+
+rc_login:
+  address:
+    per_second: 0.17
+    burst_count: 3
+  account:
+    per_second: 0.17
+    burst_count: 3
+  failed_attempts:
+    per_second: 0.17
+    burst_count: 3
+
+rc_admin_redaction:
+  per_second: 1
+  burst_count: 50
+
+rc_joins:
+  local:
+    per_second: 0.1
+    burst_count: 3
+  remote:
+    per_second: 0.01
+    burst_count: 3
+
+# 媒体存储优化
+media_store_path: /data/media_store
+uploads_path: /data/uploads
+
+# 缩略图配置 (关闭动态缩略图)
+dynamic_thumbnails: false
+thumbnail_sizes:
+  - width: 32
+    height: 32
+    method: crop
+  - width: 96
+    height: 96
+    method: crop
+  - width: 320
+    height: 240
+    method: scale
+  - width: 640
+    height: 480
+    method: scale
+
+# 垃圾回收配置
+run_background_tasks: true
+cleanup_extremities_with_dummy_events: true
+
+# 统计报告 (关闭以节省资源)
+report_stats: false
+metrics_flags:
+  known_servers: false
+
+# 好友功能性能配置
+friends_performance:
+  # 好友列表缓存时间 (秒)
+  friends_list_cache_ttl: 300
+  # 好友请求缓存时间 (秒)
+  friend_requests_cache_ttl: 60
+  # 批量查询大小
+  batch_size: 50
+  # 最大并发好友操作
+  max_concurrent_operations: 5

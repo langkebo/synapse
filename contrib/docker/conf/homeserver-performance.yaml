@@ -1,0 +1,309 @@
+# Synapse 性能优化配置示例
+# Synapse Performance Optimization Configuration Example
+# 适用于 1核2GB 服务器环境
+# Optimized for 1 CPU core, 2GB RAM server environment
+
+# 服务器基本配置
+# Basic server configuration
+server_name: "example.com"
+pid_file: "/data/homeserver.pid"
+log_config: "/data/log.config"
+media_store_path: "/data/media_store"
+uploads_path: "/data/uploads"
+
+# 数据库配置 - 针对低配置服务器优化
+# Database configuration - optimized for low-spec servers
+database:
+  name: psycopg2
+  args:
+    user: synapse_user
+    password: "your_password_here"
+    database: synapse
+    host: postgres
+    port: 5432
+    cp_min: 2          # 最小连接池大小 (Minimum connection pool size)
+    cp_max: 8          # 最大连接池大小 (Maximum connection pool size)
+    cp_noisy: false
+    cp_openfun: synapse.storage.engines.postgres.on_new_connection
+    options: "-c default_transaction_isolation=read_committed"
+
+# 性能优化配置
+# Performance optimization configuration
+performance:
+  # 数据库连接池配置
+  # Database connection pool configuration
+  database_pool:
+    min_connections: 2
+    max_connections: 8
+    connection_timeout: 30
+    idle_timeout: 300
+    max_lifetime: 3600
+    
+  # 内存优化配置
+  # Memory optimization configuration
+  memory:
+    max_memory_usage: "1.5GB"      # 最大内存使用量 (Maximum memory usage)
+    gc_threshold: 0.8              # GC 触发阈值 (GC trigger threshold)
+    enable_memory_profiling: false # 内存分析 (Memory profiling)
+    
+  # 网络优化配置
+  # Network optimization configuration
+  network:
+    max_request_size: "50MB"       # 最大请求大小 (Maximum request size)
+    request_timeout: 60            # 请求超时时间 (Request timeout)
+    keep_alive_timeout: 30         # Keep-alive 超时 (Keep-alive timeout)
+    max_concurrent_requests: 50    # 最大并发请求 (Maximum concurrent requests)
+    
+  # 并发控制配置
+  # Concurrency control configuration
+  concurrency:
+    max_worker_threads: 4          # 最大工作线程数 (Maximum worker threads)
+    max_async_tasks: 100           # 最大异步任务数 (Maximum async tasks)
+    task_queue_size: 1000          # 任务队列大小 (Task queue size)
+    
+  # 缓存优化配置
+  # Cache optimization configuration
+  cache_optimization:
+    enable_adaptive_caching: true  # 启用自适应缓存 (Enable adaptive caching)
+    cache_hit_rate_target: 0.85    # 目标缓存命中率 (Target cache hit rate)
+    auto_tune_cache_sizes: true    # 自动调整缓存大小 (Auto-tune cache sizes)
+    
+  # 好友功能性能配置
+  # Friends feature performance configuration
+  friends:
+    max_friends_per_user: 1000     # 每用户最大好友数 (Maximum friends per user)
+    friends_sync_batch_size: 50    # 好友同步批次大小 (Friends sync batch size)
+    friends_cache_ttl: 3600        # 好友缓存TTL (Friends cache TTL)
+    enable_friends_presence: true  # 启用好友在线状态 (Enable friends presence)
+    
+  # 数据库查询优化
+  # Database query optimization
+  database_optimization:
+    enable_query_caching: true     # 启用查询缓存 (Enable query caching)
+    slow_query_threshold: 1.0      # 慢查询阈值(秒) (Slow query threshold in seconds)
+    max_query_timeout: 30          # 最大查询超时 (Maximum query timeout)
+    enable_connection_pooling: true # 启用连接池 (Enable connection pooling)
+    
+  # 资源限制配置
+  # Resource limits configuration
+  resource_limits:
+    max_upload_size: "100MB"       # 最大上传大小 (Maximum upload size)
+    max_avatar_size: "10MB"        # 最大头像大小 (Maximum avatar size)
+    max_room_members: 1000         # 最大房间成员数 (Maximum room members)
+    max_events_per_room: 100000    # 每房间最大事件数 (Maximum events per room)
+    
+  # 监控和指标配置
+  # Monitoring and metrics configuration
+  monitoring:
+    enable_metrics: true           # 启用指标收集 (Enable metrics collection)
+    metrics_interval: 60           # 指标收集间隔 (Metrics collection interval)
+    enable_performance_logging: true # 启用性能日志 (Enable performance logging)
+    log_slow_operations: true      # 记录慢操作 (Log slow operations)
+
+# 缓存策略配置
+# Cache strategy configuration
+cache_strategy:
+  # Redis 缓存配置
+  # Redis cache configuration
+  redis:
+    enabled: true
+    host: "redis"
+    port: 6379
+    password: null
+    db: 0
+    max_connections: 20
+    connection_timeout: 5
+    socket_timeout: 5
+    pool:
+      max_connections: 50
+      retry_on_timeout: true
+      health_check_interval: 30
+      
+  # 内存缓存配置
+  # Memory cache configuration
+  memory_cache:
+    enabled: true
+    max_size: "200MB"              # 最大内存缓存大小 (Maximum memory cache size)
+    ttl: 1800                      # 默认TTL(秒) (Default TTL in seconds)
+    cleanup_interval: 300          # 清理间隔(秒) (Cleanup interval in seconds)
+    
+  # 缓存层级配置
+  # Cache tier configuration
+  tiers:
+    l1_cache_size: "50MB"          # L1缓存大小(内存) (L1 cache size - memory)
+    l2_cache_size: "500MB"         # L2缓存大小(Redis) (L2 cache size - Redis)
+    promotion_threshold: 3         # 提升到上级缓存的访问次数阈值 (Access count threshold for cache promotion)
+    
+  # 好友功能缓存配置
+  # Friends feature cache configuration
+  friends_cache:
+    enabled: true
+    relationships:
+      ttl: 3600                    # 好友关系缓存TTL(秒) (Friends relationships cache TTL)
+      max_size: 10000              # 最大缓存条目数 (Maximum cache entries)
+    requests:
+      ttl: 1800                    # 好友请求缓存TTL(秒) (Friends requests cache TTL)
+      max_size: 5000               # 最大缓存条目数 (Maximum cache entries)
+    presence:
+      ttl: 300                     # 在线状态缓存TTL(秒) (Presence cache TTL)
+      max_size: 20000              # 最大缓存条目数 (Maximum cache entries)
+    recommendations:
+      ttl: 7200                    # 推荐缓存TTL(秒) (Recommendations cache TTL)
+      max_size: 1000               # 最大缓存条目数 (Maximum cache entries)
+      
+  # 缓存预热配置
+  # Cache warming configuration
+  cache_warming:
+    enabled: true
+    strategies:
+      - "friends_relationships"     # 预热好友关系 (Warm friends relationships)
+      - "user_profiles"             # 预热用户资料 (Warm user profiles)
+    batch_size: 100                # 预热批次大小 (Warming batch size)
+    interval: 3600                 # 预热间隔(秒) (Warming interval in seconds)
+    
+  # 缓存淘汰策略
+  # Cache eviction policy
+  eviction_policy:
+    default: "lru"                 # 默认淘汰策略: lru, lfu, fifo (Default eviction policy)
+    memory_pressure_threshold: 0.8 # 内存压力阈值 (Memory pressure threshold)
+    aggressive_eviction_threshold: 0.9 # 激进淘汰阈值 (Aggressive eviction threshold)
+    
+  # 缓存压缩配置
+  # Cache compression configuration
+  compression:
+    enabled: true
+    algorithm: "gzip"              # 压缩算法: gzip, lz4, snappy (Compression algorithm)
+    threshold: 1024                # 压缩阈值(字节) (Compression threshold in bytes)
+    
+  # 缓存监控配置
+  # Cache monitoring configuration
+  monitoring:
+    enabled: true
+    hit_rate_threshold: 0.8        # 命中率告警阈值 (Hit rate alert threshold)
+    interval: 60                   # 监控间隔(秒) (Monitoring interval in seconds)
+    alert_on_low_hit_rate: true    # 低命中率告警 (Alert on low hit rate)
+
+# 缓存配置 - 针对低内存环境优化
+# Cache configuration - optimized for low memory environment
+caches:
+  global_factor: 0.3               # 全局缓存因子 (Global cache factor)
+  per_cache_factors:
+    get_users_who_share_room_with_user: 0.1  # 共享房间用户缓存 (Shared room users cache)
+    get_rooms_for_user: 0.2        # 用户房间缓存 (User rooms cache)
+    get_current_state_ids: 0.2     # 当前状态ID缓存 (Current state IDs cache)
+    get_users_in_room: 0.1         # 房间用户缓存 (Room users cache)
+    get_room_summary: 0.1          # 房间摘要缓存 (Room summary cache)
+    # 好友功能相关缓存 (Friends feature related caches)
+    get_friends_for_user: 0.3      # 用户好友缓存 (User friends cache)
+    get_friend_requests: 0.2       # 好友请求缓存 (Friend requests cache)
+    get_friends_presence: 0.1      # 好友在线状态缓存 (Friends presence cache)
+    
+  # 事件缓存配置 (Event cache configuration)
+  event_cache_size: "10M"          # 事件缓存大小 (Event cache size)
+  
+  # 缓存过期时间配置 (Cache expiry configuration)
+  expiry_time_msec: 1800000        # 缓存过期时间(毫秒) (Cache expiry time in milliseconds)
+  
+  # 缓存同步配置 (Cache sync configuration)
+  sync_response_cache_duration: 2000 # 同步响应缓存持续时间(毫秒) (Sync response cache duration)
+
+# 监听器配置 - 针对低配置服务器优化
+# Listeners configuration - optimized for low-spec servers
+listeners:
+  - port: 8008
+    tls: false
+    type: http
+    x_forwarded: true
+    bind_addresses: ['::1', '127.0.0.1']
+    resources:
+      - names: [client, federation]
+        compress: true             # 启用压缩 (Enable compression)
+        
+# 日志配置
+# Logging configuration
+log_config: "/data/log.config"
+
+# 媒体存储配置 - 针对低存储空间优化
+# Media storage configuration - optimized for low storage space
+media_store_path: "/data/media_store"
+max_upload_size: "100M"            # 最大上传大小 (Maximum upload size)
+max_image_pixels: "32M"            # 最大图片像素 (Maximum image pixels)
+dynamic_thumbnails: false          # 禁用动态缩略图以节省CPU (Disable dynamic thumbnails to save CPU)
+
+# URL 预览配置 - 禁用以节省资源
+# URL preview configuration - disabled to save resources
+url_preview_enabled: false
+
+# 用户目录配置 - 简化以节省资源
+# User directory configuration - simplified to save resources
+user_directory:
+  enabled: true
+  search_all_users: false          # 禁用全用户搜索以节省资源 (Disable all-user search to save resources)
+  prefer_local_users: true         # 优先本地用户 (Prefer local users)
+
+# 统计报告配置
+# Stats reporting configuration
+report_stats: false
+
+# 注册配置
+# Registration configuration
+enable_registration: false         # 禁用开放注册 (Disable open registration)
+registration_shared_secret: "your_registration_secret_here"
+
+# 速率限制配置 - 针对低配置服务器调整
+# Rate limiting configuration - adjusted for low-spec servers
+rc_message:
+  per_second: 0.5                  # 每秒消息数限制 (Messages per second limit)
+  burst_count: 10                  # 突发消息数限制 (Burst message count limit)
+  
+rc_registration:
+  per_second: 0.1                  # 每秒注册数限制 (Registrations per second limit)
+  burst_count: 3                   # 突发注册数限制 (Burst registration count limit)
+  
+rc_login:
+  address:
+    per_second: 0.1                # 每秒登录数限制 (Logins per second limit)
+    burst_count: 3                 # 突发登录数限制 (Burst login count limit)
+  account:
+    per_second: 0.1                # 每账户每秒登录数限制 (Logins per account per second limit)
+    burst_count: 5                 # 每账户突发登录数限制 (Burst login count per account limit)
+
+# 联邦配置 - 针对低配置服务器优化
+# Federation configuration - optimized for low-spec servers
+federation_sender_instances:
+  - federation_sender1             # 单个联邦发送实例 (Single federation sender instance)
+  
+federation_rc_window_size: 10000   # 联邦速率限制窗口大小 (Federation rate limit window size)
+federation_rc_sleep_limit: 10      # 联邦速率限制睡眠限制 (Federation rate limit sleep limit)
+federation_rc_sleep_delay: 500     # 联邦速率限制睡眠延迟 (Federation rate limit sleep delay)
+federation_rc_reject_limit: 50     # 联邦速率限制拒绝限制 (Federation rate limit reject limit)
+federation_rc_concurrent: 3        # 联邦并发连接数 (Federation concurrent connections)
+
+# 推送配置 - 简化以节省资源
+# Push configuration - simplified to save resources
+push:
+  include_content: false           # 不包含推送内容以节省带宽 (Exclude push content to save bandwidth)
+  group_unread_count_by_room: false # 不按房间分组未读计数 (Don't group unread count by room)
+
+# 实验性功能配置
+# Experimental features configuration
+experimental_features:
+  # 启用好友功能 (Enable friends feature)
+  friends_feature_enabled: true
+  # 启用性能优化 (Enable performance optimizations)
+  performance_optimizations_enabled: true
+  # 启用缓存优化 (Enable cache optimizations)
+  cache_optimizations_enabled: true
+
+# 签名密钥配置 (需要生成)
+# Signing key configuration (needs to be generated)
+signing_key_path: "/data/signing.key"
+
+# 受信任的密钥服务器
+# Trusted key servers
+trusted_key_servers:
+  - server_name: "matrix.org"
+
+# 抑制密钥服务器警告
+# Suppress key server warning
+suppress_key_server_warning: true

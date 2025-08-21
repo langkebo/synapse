@@ -1,0 +1,336 @@
+FROM python:3.11-alpine
+
+# 设置构建参数 (Set build arguments)
+ARG BUILD_DATE
+ARG VCS_REF
+ARG VERSION=1.0.0
+
+# 添加标签 (Add labels)
+
+# 设置环境变量 (Set environment variables)
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONOPTIMIZE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    MONITOR_CONFIG=/config/monitor.yaml \
+    SYNAPSE_CONFIG=/data/homeserver.yaml \
+    LOG_LEVEL=INFO \
+    MONITOR_INTERVAL=60 \
+    ALERT_THRESHOLD_CPU=80 \
+    ALERT_THRESHOLD_MEMORY=85 \
+    ALERT_THRESHOLD_DISK=90
+
+# 安装系统依赖 (Install system dependencies)
+RUN apk add --no-cache \
+        curl \
+        bash \
+        procps \
+        htop \
+        iotop \
+        net-tools \
+        bind-tools \
+        postgresql-client \
+        redis \
+        ca-certificates \
+        tzdata \
+        tini \
+        shadow \
+    && rm -rf /var/cache/apk/*
+
+# 安装 Python 依赖 (Install Python dependencies)
+RUN pip install --no-cache-dir \
+        psutil \
+        psycopg2-binary \
+        redis \
+        pyyaml \
+        requests \
+        prometheus_client \
+        docker \
+        schedule \
+        click
+
+# 创建监控用户 (Create monitor user)
+RUN addgroup -g 992 -S monitor \
+    && adduser -u 992 -S monitor -G monitor -h /home/monitor -s /bin/bash
+
+# 创建必要的目录 (Create necessary directories)
+RUN mkdir -p /config /data /logs /scripts /home/monitor \
+    && chown -R monitor:monitor /config /data /logs /scripts /home/monitor
+
+# 复制监控脚本 (Copy monitoring scripts)
+COPY scripts/system_monitor.py /scripts/
+COPY scripts/performance_monitor.py /scripts/
+COPY docker/monitor/ /scripts/monitor/
+
+# 创建监控配置文件 (Create monitoring configuration file)
+RUN cat > /config/monitor.yaml << 'EOF'
+# Synapse 系统监控配置 (Synapse System Monitor Configuration)
+monitor:
+  # 监控间隔 (Monitor interval) - 秒 (seconds)
+  interval: 60
+  
+  # 数据保留时间 (Data retention) - 天 (days)
+  retention_days: 7
+  
+  # 日志配置 (Log configuration)
+  log:
+    level: INFO
+    file: /logs/monitor.log
+    max_size: 10MB
+    backup_count: 5
+  
+  # 系统监控配置 (System monitoring configuration)
+  system:
+    enabled: true
+    metrics:
+      - cpu_usage
+      - memory_usage
+      - disk_usage
+      - network_io
+      - load_average
+      - process_count
+  
+  # Synapse 监控配置 (Synapse monitoring configuration)
+  synapse:
+    enabled: true
+    url: http://synapse:8008
+    metrics_endpoint: /_synapse/metrics
+    health_endpoint: /health
+    timeout: 30
+  
+  # 数据库监控配置 (Database monitoring configuration)
+  database:
+    enabled: true
+    type: postgresql
+    host: postgres
+    port: 5432
+    database: synapse
+    user: synapse_user
+    password_env: POSTGRES_PASSWORD
+    timeout: 30
+  
+  # Redis 监控配置 (Redis monitoring configuration)
+  redis:
+    enabled: true
+    host: redis
+    port: 6379
+    password_env: REDIS_PASSWORD
+    timeout: 30
+  
+  # Docker 监控配置 (Docker monitoring configuration)
+  docker:
+    enabled: true
+    socket: /var/run/docker.sock
+    containers:
+      - synapse_homeserver
+      - synapse_postgres
+      - synapse_redis
+      - synapse_nginx
+  
+  # 告警配置 (Alert configuration)
+  alerts:
+    enabled: true
+    
+    # CPU 告警阈值 (CPU alert thresholds)
+    cpu:
+      warning: 70
+      critical: 85
+    
+    # 内存告警阈值 (Memory alert thresholds)
+    memory:
+      warning: 75
+      critical: 90
+    
+    # 磁盘告警阈值 (Disk alert thresholds)
+    disk:
+      warning: 80
+      critical: 95
+    
+    # 网络告警阈值 (Network alert thresholds)
+    network:
+      warning_mbps: 80
+      critical_mbps: 95
+    
+    # 数据库连接告警阈值 (Database connection alert thresholds)
+    database_connections:
+      warning: 40
+      critical: 45
+    
+    # Redis 内存告警阈值 (Redis memory alert thresholds)
+    redis_memory:
+      warning: 180  # MB
+      critical: 220  # MB
+    
+    # 通知配置 (Notification configuration)
+    notifications:
+      # 日志通知 (Log notification)
+      log:
+        enabled: true
+        level: WARNING
+      
+      # 文件通知 (File notification)
+      file:
+        enabled: true
+        path: /logs/alerts.log
+      
+      # HTTP 通知 (HTTP notification)
+      webhook:
+        enabled: false
+        url: ""
+        timeout: 10
+        headers:
+          Content-Type: application/json
+  
+  # Prometheus 指标导出 (Prometheus metrics export)
+  prometheus:
+    enabled: true
+    port: 9090
+    path: /metrics
+    
+  # 性能优化配置 (Performance optimization configuration)
+  performance:
+    # 监控进程优先级 (Monitor process priority)
+    nice_level: 10
+    
+    # 内存限制 (Memory limit)
+    memory_limit_mb: 64
+    
+    # 数据采样率 (Data sampling rate)
+    sampling_rate: 1.0
+    
+    # 批处理大小 (Batch size)
+    batch_size: 100
+EOF
+
+# 创建启动脚本 (Create startup script)
+RUN cat > /scripts/start_monitor.sh << 'EOF'
+#!/bin/bash
+# -*- coding: utf-8 -*-
+
+# 系统监控启动脚本 (System Monitor Startup Script)
+
+set -e
+
+# 颜色定义 (Color definitions)
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+# 日志函数 (Logging functions)
+log_info() {
+    echo -e "${GREEN}[INFO]${NC} $(date '+%Y-%m-%d %H:%M:%S') - $1"
+}
+
+log_warn() {
+    echo -e "${YELLOW}[WARN]${NC} $(date '+%Y-%m-%d %H:%M:%S') - $1"
+}
+
+log_error() {
+    echo -e "${RED}[ERROR]${NC} $(date '+%Y-%m-%d %H:%M:%S') - $1"
+}
+
+# 信号处理 (Signal handling)
+cleanup() {
+    log_info "接收到终止信号，正在关闭监控服务... (Received termination signal, shutting down monitor service...)"
+    
+    if [[ -n "$MONITOR_PID" ]]; then
+        kill -TERM "$MONITOR_PID" 2>/dev/null || true
+        wait "$MONITOR_PID" 2>/dev/null || true
+    fi
+    
+    log_info "监控服务已关闭 (Monitor service shutdown completed)"
+    exit 0
+}
+
+trap cleanup SIGTERM SIGINT SIGQUIT
+
+# 等待依赖服务 (Wait for dependent services)
+wait_for_services() {
+    log_info "等待依赖服务启动... (Waiting for dependent services to start...)"
+    
+    # 等待 Synapse 服务 (Wait for Synapse service)
+    local count=0
+    while ! curl -f http://synapse:8008/health >/dev/null 2>&1; do
+        if [[ $count -ge 120 ]]; then
+            log_warn "Synapse 服务启动超时，继续启动监控 (Synapse service startup timeout, continuing with monitoring)"
+            break
+        fi
+        sleep 5
+        ((count += 5))
+    done
+    
+    log_info "依赖服务检查完成 (Dependent services check completed)"
+}
+
+# 创建必要目录 (Create necessary directories)
+setup_directories() {
+    log_info "创建必要目录 (Creating necessary directories)"
+    mkdir -p /logs /data/monitor
+    chown -R monitor:monitor /logs /data/monitor
+}
+
+# 启动监控服务 (Start monitoring service)
+start_monitoring() {
+    log_info "启动系统监控服务 (Starting system monitoring service)"
+    
+    # 设置进程优先级 (Set process priority)
+    if command -v renice >/dev/null 2>&1; then
+        renice 10 $$ >/dev/null 2>&1 || true
+    fi
+    
+    # 启动监控进程 (Start monitoring process)
+    python /scripts/system_monitor.py \
+        --config "${MONITOR_CONFIG}" \
+        --synapse-config "${SYNAPSE_CONFIG}" \
+        --log-level "${LOG_LEVEL}" \
+        --docker &
+    
+    MONITOR_PID=$!
+    log_info "系统监控服务已启动 (System monitoring service started) (PID: $MONITOR_PID)"
+    
+    # 等待监控进程 (Wait for monitoring process)
+    wait $MONITOR_PID
+}
+
+# 主函数 (Main function)
+main() {
+    log_info "Synapse 系统监控容器启动 (Synapse system monitor container startup)"
+    
+    setup_directories
+    wait_for_services
+    start_monitoring
+}
+
+# 脚本入口 (Script entry point)
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
+EOF
+
+# 设置脚本权限 (Set script permissions)
+RUN chmod +x /scripts/*.py /scripts/*.sh
+
+# 设置工作目录 (Set working directory)
+WORKDIR /home/monitor
+
+# 暴露端口 (Expose ports)
+EXPOSE 9090
+
+# 健康检查 (Health check)
+HEALTHCHECK --interval=60s --timeout=30s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:9090/metrics || exit 1
+
+# 设置数据卷 (Set volumes)
+VOLUME ["/logs", "/data"]
+
+# 使用 tini 作为 init 进程 (Use tini as init process)
+ENTRYPOINT ["/sbin/tini", "--"]
+
+# 默认启动命令 (Default startup command)
+CMD ["/scripts/start_monitor.sh"]
+
+# 用户切换 (Switch to user)
+USER monitor

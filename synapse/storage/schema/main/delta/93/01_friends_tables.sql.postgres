@@ -1,0 +1,70 @@
+-- 好友功能相关数据库表结构 (PostgreSQL 特定版本)
+-- 创建时间: 2024
+-- 版本: 93
+
+-- 用户好友关系表
+CREATE TABLE IF NOT EXISTS user_friendships (
+    user1_id TEXT NOT NULL,
+    user2_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active', -- 'active', 'blocked'
+    created_ts BIGINT NOT NULL,
+    updated_ts BIGINT NOT NULL,
+    PRIMARY KEY (user1_id, user2_id)
+);
+
+-- 为好友关系表创建索引
+CREATE INDEX CONCURRENTLY IF NOT EXISTS user_friendships_user1_idx ON user_friendships(user1_id);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS user_friendships_user2_idx ON user_friendships(user2_id);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS user_friendships_status_idx ON user_friendships(status);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS user_friendships_created_ts_idx ON user_friendships(created_ts);
+
+-- 好友请求表
+CREATE TABLE IF NOT EXISTS friend_requests (
+    request_id TEXT NOT NULL PRIMARY KEY,
+    sender_user_id TEXT NOT NULL,
+    target_user_id TEXT NOT NULL,
+    message TEXT,
+    status TEXT NOT NULL DEFAULT 'pending', -- 'pending', 'accepted', 'rejected', 'cancelled'
+    created_ts BIGINT NOT NULL,
+    updated_ts BIGINT NOT NULL,
+    CONSTRAINT unique_friend_request UNIQUE(sender_user_id, target_user_id)
+);
+
+-- 为好友请求表创建索引
+CREATE INDEX CONCURRENTLY IF NOT EXISTS friend_requests_sender_idx ON friend_requests(sender_user_id);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS friend_requests_target_idx ON friend_requests(target_user_id);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS friend_requests_status_idx ON friend_requests(status);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS friend_requests_created_ts_idx ON friend_requests(created_ts);
+
+-- 用户屏蔽关系表
+CREATE TABLE IF NOT EXISTS user_blocks (
+    blocker_user_id TEXT NOT NULL,
+    blocked_user_id TEXT NOT NULL,
+    created_ts BIGINT NOT NULL,
+    reason TEXT,
+    PRIMARY KEY (blocker_user_id, blocked_user_id)
+);
+
+-- 为屏蔽关系表创建索引
+CREATE INDEX CONCURRENTLY IF NOT EXISTS user_blocks_blocker_idx ON user_blocks(blocker_user_id);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS user_blocks_blocked_idx ON user_blocks(blocked_user_id);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS user_blocks_created_ts_idx ON user_blocks(created_ts);
+
+-- 好友搜索历史表（可选，用于优化搜索体验）
+CREATE TABLE IF NOT EXISTS friend_search_history (
+    user_id TEXT NOT NULL,
+    search_term TEXT NOT NULL,
+    search_ts BIGINT NOT NULL,
+    result_count INTEGER DEFAULT 0,
+    PRIMARY KEY (user_id, search_term)
+);
+
+-- 为搜索历史表创建索引
+CREATE INDEX CONCURRENTLY IF NOT EXISTS friend_search_history_user_idx ON friend_search_history(user_id);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS friend_search_history_ts_idx ON friend_search_history(search_ts);
+
+-- 添加注释
+COMMENT ON TABLE user_friendships IS '用户好友关系表';
+COMMENT ON TABLE friend_requests IS '好友请求表';
+COMMENT ON TABLE user_blocks IS '用户屏蔽关系表';
+COMMENT ON TABLE friend_search_history IS '好友搜索历史表';

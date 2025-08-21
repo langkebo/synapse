@@ -1,0 +1,79 @@
+# Synapse2 Docker Compose 配置
+# 标准部署配置
+
+version: '3.8'
+
+services:
+  synapse:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: synapse2
+    restart: unless-stopped
+    ports:
+      - "8008:8008"
+    volumes:
+      - ./data:/data
+      - ./config:/config:ro
+      - ./homeserver.yaml:/data/homeserver.yaml:ro
+    environment:
+      - SYNAPSE_SERVER_NAME=localhost
+      - SYNAPSE_REPORT_STATS=no
+      - SYNAPSE_CONFIG_PATH=/data/homeserver.yaml
+    depends_on:
+      - redis
+    networks:
+      - synapse_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8008/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  redis:
+    image: redis:7-alpine
+    container_name: synapse2_redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    networks:
+      - synapse_network
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  nginx:
+    image: nginx:alpine
+    container_name: synapse2_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./data/media_store:/var/www/media:ro
+    depends_on:
+      - synapse
+    networks:
+      - synapse_network
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  redis_data:
+    driver: local
+
+networks:
+  synapse_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
