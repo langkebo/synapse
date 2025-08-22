@@ -377,9 +377,13 @@ start_services() {
     log_info "等待数据库就绪..."
     sleep 30
     
-    # 检查数据库连接
-    if ! ${COMPOSE_CMD} exec -T postgres pg_isready -U synapse -d synapse; then
+    # 检查数据库连接（使用TCP避免peer认证问题）
+    if ! ${COMPOSE_CMD} exec -T postgres pg_isready -h localhost -p 5432; then
         log_error "数据库连接失败"
+        log_info "PostgreSQL容器状态："
+        ${COMPOSE_CMD} ps postgres || true
+        log_info "最近的PostgreSQL日志（末尾200行）："
+        ${COMPOSE_CMD} logs --tail 200 postgres || true
         exit 1
     fi
     

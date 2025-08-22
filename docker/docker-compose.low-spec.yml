@@ -26,7 +26,7 @@ services:
       POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+      # removed: do not bind-mount postgresql.conf (incompatible with PG15)
       - ./postgres/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
     networks:
       - synapse_network

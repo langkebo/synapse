@@ -1,5 +1,3 @@
-version: '3.8'
-
 # Synapse Matrix服务器 - 针对1核2GB服务器优化的Docker部署
 # 包含好友功能扩展和完整的监控栈
 
@@ -16,14 +14,15 @@ services:
       POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
       - ./postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
       - ./postgres/friends_schema.sql:/docker-entrypoint-initdb.d/02-friends_schema.sql:ro
     ports:
       - "5432:5432"
     command: [
       "postgres",
-      "-c", "config_file=/etc/postgresql/postgresql.conf"
+      "-c", "shared_preload_libraries=pg_stat_statements",
+      "-c", "listen_addresses=*",
+      "-c", "max_connections=50"
     ]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U synapse -d synapse"]

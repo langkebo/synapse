@@ -1,8 +1,6 @@
 # Synapse2 Docker Compose 配置
 # 标准部署配置
 
-version: '3.8'
-
 services:
   synapse:
     build:
