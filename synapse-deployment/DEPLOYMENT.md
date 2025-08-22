@@ -99,7 +99,7 @@ sudo ufw status
 ```bash
 # 克隆项目（包含部署目录）
 git clone https://github.com/langkebo/synapse.git
-cd synapse
+git clone https://github.com/langkebo/synapse.git
 
 # 进入部署目录
 cd synapse-deployment

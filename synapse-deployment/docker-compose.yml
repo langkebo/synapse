@@ -276,6 +276,7 @@ services:
     container_name: synapse-postgres-exporter
     restart: unless-stopped
     environment:
+      DATA_SOURCE_NAME: "postgresql://synapse:${POSTGRES_PASSWORD:-synapse_secure_password_2024}@postgres:5432/synapse?sslmode=disable"
     ports:
       - "9187:9187"
     depends_on:
