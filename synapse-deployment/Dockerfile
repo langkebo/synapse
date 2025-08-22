@@ -44,6 +44,13 @@ RUN pip install --no-cache-dir setuptools-rust maturin
 RUN git clone --depth 1 --branch ${SYNAPSE_VERSION} https://github.com/matrix-org/synapse.git /tmp/synapse
 WORKDIR /tmp/synapse
 
+# 避免顶层目录名为 "logging" 时遮蔽 Python 标准库 logging 模块，导致构建期导入失败
+# 见错误：AttributeError: partially initialized module 'logging' has no attribute 'getLogger'
+RUN if [ -d "/tmp/synapse/logging" ]; then \
+      echo "Renaming top-level 'logging' to avoid shadowing stdlib"; \
+      mv /tmp/synapse/logging /tmp/synapse/_logging_pkg; \
+    fi
+
 # 复制好友功能扩展代码（将本地的 synapse/ 包合并到上游源码的 synapse/ 包内，避免顶层名字冲突）
 COPY ./synapse/ /tmp/synapse/synapse/
 
