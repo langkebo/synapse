@@ -22,7 +22,8 @@ services:
       "postgres",
       "-c", "shared_preload_libraries=pg_stat_statements",
       "-c", "listen_addresses=*",
-      "-c", "max_connections=50"
+      "-c", "max_connections=50",
+      "-c", "config_file=/var/lib/postgresql/data/postgresql.conf"
     ]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U synapse -d synapse"]
@@ -275,7 +276,6 @@ services:
     container_name: synapse-postgres-exporter
     restart: unless-stopped
     environment:
-      DATA_SOURCE_NAME: "postgresql://synapse:${POSTGRES_PASSWORD:-synapse_secure_password_2024}@postgres:5432/synapse?sslmode=disable"
     ports:
       - "9187:9187"
     depends_on:
@@ -319,7 +319,7 @@ services:
   # Nginx Exporter Web服务器监控
   nginx-exporter:
     image: nginx/nginx-prometheus-exporter:latest
-    container_name: synapse-nginx-exporter
+    container_name: synapse-nginx-prom-exporter
     restart: unless-stopped
     command:
       - '-nginx.scrape-uri=http://nginx:8080/nginx_status'
@@ -336,7 +336,6 @@ services:
           cpus: '0.05'
         reservations:
           memory: 16M
-          cpus: '0.02'
 
 # 网络配置
 networks:
