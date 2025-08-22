@@ -22,14 +22,14 @@ rule_files:
   - "/etc/prometheus/rules/friends/*.yml"
   - "/etc/prometheus/rules/alerts/*.yml"
 
-# 告警管理器配置
-alerting:
-  alertmanagers:
-    - static_configs:
-        - targets:
-          - alertmanager:9093
-      timeout: 10s
-      api_version: v2
+# 告警管理器配置（已禁用，如需启用请在 docker-compose 中添加 alertmanager 服务并取消注释）
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets:
+#           - alertmanager:9093
+#       timeout: 10s
+#       api_version: v2
 
 # 数据采集配置
 scrape_configs:
@@ -184,22 +184,22 @@ scrape_configs:
       - target_label: component
         replacement: 'federation'
 
-# 远程写入配置（可选）
-remote_write:
-  - url: "http://remote-storage:9201/write"
-    queue_config:
-      max_samples_per_send: 1000
-      max_shards: 5
-      capacity: 2500
-    write_relabel_configs:
-      - source_labels: [__name__]
-        regex: 'synapse_.*|friends_.*|system_.*'
-        action: keep
+# 远程写入配置（已禁用，如需启用请在 docker-compose 中添加 remote-storage 服务并取消注释）
+# remote_write:
+#   - url: "http://remote-storage:9201/write"
+#     queue_config:
+#       max_samples_per_send: 1000
+#       max_shards: 5
+#       capacity: 2500
+#     write_relabel_configs:
+#       - source_labels: [__name__]
+#         regex: 'synapse_.*|friends_.*|system_.*'
+#         action: keep
 
-# 远程读取配置（可选）
-remote_read:
-  - url: "http://remote-storage:9201/read"
-    read_recent: true
+# 远程读取配置（已禁用，如需启用请在 docker-compose 中添加 remote-storage 服务并取消注释）
+# remote_read:
+#   - url: "http://remote-storage:9201/read"
+#     read_recent: true
 
 # 注意：Prometheus 不支持 storage/query/performance/alerting_rules/recording_rules/localization/debug/security/backup 等顶层字段，
 # 相关参数已通过 docker-compose 中的命令行参数进行配置（例如 --storage.tsdb.retention.time、--query.max-concurrency 等）。
