@@ -55,7 +55,7 @@ RUN if [ -d "/tmp/synapse/logging" ]; then \
 COPY ./synapse/ /tmp/synapse/synapse/
 
 # 安装Synapse（禁用构建隔离，以便使用上一步安装的依赖，如 Pillow）
-RUN pip install --no-cache-dir --no-build-isolation -e .
+RUN pip install --no-cache-dir --no-build-isolation .
 
 # 运行时镜像
 FROM python:3.11-slim as runtime
