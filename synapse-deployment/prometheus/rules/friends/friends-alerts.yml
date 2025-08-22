@@ -241,8 +241,8 @@ groups:
       # 好友请求频率异常
       - alert: FriendRequestRateAnomalous
         expr: |
-          rate(synapse_friends_requests_total[1m]) > 
-          avg_over_time(rate(synapse_friends_requests_total[1m])[1h]) * 5
+          rate(synapse_friends_requests_total[1m]) >
+          5 * avg_over_time(rate(synapse_friends_requests_total[1m])[1h:1m])
         for: 2m
         labels:
           severity: warning
@@ -269,9 +269,7 @@ groups:
       # 单用户好友请求过多
       - alert: SingleUserTooManyFriendRequests
         expr: |
-          topk(5, 
-            rate(synapse_friends_requests_total[5m]) by (user_id)
-          ) > 10
+          topk(5, sum by (user_id) (rate(synapse_friends_requests_total[5m]))) * 60 > 10
         for: 3m
         labels:
           severity: warning
