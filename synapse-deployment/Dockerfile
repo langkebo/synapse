@@ -33,6 +33,13 @@ COPY synapse-deployment/requirements.txt /tmp/requirements.txt
 # 安装Python依赖
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
+# 安装 Rust 工具链（用于可选的 Rust 扩展构建）
+RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable && \
+    echo 'source /root/.cargo/env' >> /root/.profile
+ENV PATH="/root/.cargo/bin:$PATH"
+# 安装构建辅助工具，禁用构建隔离时需要手动提供
+RUN pip install --no-cache-dir setuptools-rust maturin
+
 # 克隆Synapse源码并安装
 RUN git clone --depth 1 --branch ${SYNAPSE_VERSION} https://github.com/matrix-org/synapse.git /tmp/synapse
 WORKDIR /tmp/synapse
