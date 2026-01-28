@@ -1,6 +1,6 @@
 # Synapse Rust 重构项目规则
 
-> **版本**：2.0.0  
+> **版本**：2.1.0  
 > **最后更新**：2026-01-28  
 > **项目状态**：源代码重建中  
 > **参考文档**：[Synapse 官方文档](https://element-hq.github.io/synapse/latest/)
@@ -55,10 +55,55 @@
 - **联邦通信**：完整的 Federation API 支持
 - **管理功能**：完善的 Admin API 支持
 - **媒体处理**：媒体上传、存储、检索功能
+- **增强功能**：好友系统、私聊管理、语音消息（内部管理）
 
 ---
 
-## 三、技术栈规范
+## 三、增强功能模块评估
+
+### 3.1 模块公开发布策略
+
+| 模块 | 发布策略 | 说明 |
+|------|----------|------|
+| 好友系统 | ✅ 对外发布 | 核心社交功能，用户需求强烈 |
+| 私聊管理 | ✅ 对外发布 | 端到端加密通信，核心功能 |
+| 语音消息 | ✅ 对外发布 | 用户体验增强功能 |
+| 安全控制 | ❌ 内部管理 | 仅 Admin API 对内开放 |
+
+### 3.2 安全控制模块评估
+
+**决策：不建议公开发布该模块**
+
+**评估理由：**
+
+1. **功能复杂度高**：包含威胁检测、IP声誉系统、GeoIP定位、异常行为分析等10+功能
+2. **实现难度大**：需要集成外部威胁情报库、地理位置服务、行为分析模型
+3. **维护成本高**：安全规则需持续更新，检测算法需定期调优
+4. **与Matrix协议重叠**：认证、授权、加密等安全机制已有完善实现
+5. **安全风险**：公开的安全功能可能被恶意用户研究绕过方法
+
+**建议处理方式：**
+
+- 仅作为内部管理功能，通过 Admin API 使用
+- 不提供公开 API 接口
+- 部署时仅限内网访问或添加额外认证
+
+### 3.3 好友模块增强建议
+
+**当前状态**：好友关系管理、请求处理、分组管理、用户屏蔽功能已较完善
+
+**建议加强功能：**
+
+| 功能 | 优先级 | 说明 |
+|------|--------|------|
+| 好友推荐 | P2 | 基于共同好友、互动频率推荐 |
+| 好友动态 | P2 | 上线/下线/发布内容状态通知 |
+| 批量操作 | P2 | 批量添加、删除、分组管理 |
+| 权限控制 | P2 | 精细化的好友权限管理 |
+
+---
+
+## 四、技术栈规范
 
 ### 3.1 核心技术选型
 
@@ -99,7 +144,9 @@ synapse_rust/
 │   │   ├── token.rs          # 令牌存储
 │   │   ├── room.rs           # 房间存储
 │   │   ├── membership.rs     # 成员存储
-│   │   └── event.rs          # 事件存储
+│   │   ├── event.rs          # 事件存储
+│   │   ├── friend.rs         # 好友关系存储
+│   │   └── private.rs        # 私聊会话存储
 │   ├── cache/                # 缓存层
 │   │   ├── mod.rs
 │   │   ├── local.rs          # 本地缓存
@@ -111,14 +158,20 @@ synapse_rust/
 │   │   ├── registration.rs   # 注册服务
 │   │   ├── room.rs           # 房间服务
 │   │   ├── sync.rs           # 同步服务
-│   │   └── media.rs          # 媒体服务
+│   │   ├── media.rs          # 媒体服务
+│   │   ├── friend.rs         # 好友服务
+│   │   ├── private_chat.rs   # 私聊服务
+│   │   └── voice.rs          # 语音消息服务
 │   ├── web/                  # Web 路由层
 │   │   ├── mod.rs
 │   │   ├── routes/
 │   │   │   ├── mod.rs        # 客户端 API
 │   │   │   ├── admin.rs      # 管理 API
 │   │   │   ├── media.rs      # 媒体 API
-│   │   │   └── federation.rs # 联邦 API
+│   │   │   ├── federation.rs # 联邦 API
+│   │   │   ├── friend.rs     # 好友 API (增强)
+│   │   │   ├── private.rs    # 私聊 API (增强)
+│   │   │   └── voice.rs      # 语音消息 API (增强)
 │   │   └── middleware/       # HTTP 中间件
 │   │       ├── mod.rs
 │   │       ├── logging.rs
@@ -172,6 +225,57 @@ synapse_rust/
 | `/_matrix/federation/v1/keys/claim` | POST | 待实现 | P2 |
 | `/_matrix/federation/v1/keys/upload` | POST | 待实现 | P2 |
 | `/_matrix/federation/v2/key/clone` | POST | 待实现 | P2 |
+
+### 4.4 Enhanced API 实现状态（增强功能）
+
+#### 4.4.1 好友系统 API
+
+| 端点 | 方法 | 状态 | 优先级 |
+|------|------|------|--------|
+| `/_synapse/enhanced/friends` | GET | 待实现 | P1 |
+| `/_synapse/enhanced/friend/request` | POST | 待实现 | P1 |
+| `/_synapse/enhanced/friend/request/:request_id/respond` | POST | 待实现 | P1 |
+| `/_synapse/enhanced/friend/requests` | GET | 待实现 | P1 |
+| `/_synapse/enhanced/friend/categories` | GET/POST | 待实现 | P1 |
+| `/_synapse/enhanced/friend/categories/:category_id` | PUT/DELETE | 待实现 | P2 |
+| `/_synapse/enhanced/friend/blocks` | GET | 待实现 | P1 |
+| `/_synapse/enhanced/friend/blocks/:user_id` | POST/DELETE | 待实现 | P1 |
+| `/_synapse/enhanced/friend/recommendations` | GET | 待实现 | P2 |
+| `/_synapse/enhanced/friend/batch` | POST | 待实现 | P2 |
+
+#### 4.4.2 私聊管理 API
+
+| 端点 | 方法 | 状态 | 优先级 |
+|------|------|------|--------|
+| `/_synapse/enhanced/private/sessions` | GET/POST | 待实现 | P1 |
+| `/_synapse/enhanced/private/sessions/:session_id` | DELETE | 待实现 | P1 |
+| `/_synapse/enhanced/private/sessions/:session_id/messages` | GET/POST | 待实现 | P1 |
+| `/_synapse/enhanced/private/messages/:message_id/read` | POST | 待实现 | P1 |
+| `/_synapse/enhanced/private/unread-count` | GET | 待实现 | P1 |
+| `/_synapse/enhanced/private/search` | POST | 待实现 | P2 |
+
+#### 4.4.3 语音消息 API
+
+| 端点 | 方法 | 状态 | 优先级 |
+|------|------|------|--------|
+| `/_synapse/enhanced/voice/upload` | POST | 待实现 | P1 |
+| `/_synapse/enhanced/voice/messages/:message_id` | GET | 待实现 | P1 |
+| `/_synapse/enhanced/voice/messages/:message_id` | DELETE | 待实现 | P1 |
+| `/_synapse/enhanced/voice/user/:user_id` | GET | 待实现 | P1 |
+| `/_synapse/enhanced/voice/user/:user_id/stats` | GET | 待实现 | P2 |
+
+#### 4.4.4 安全控制 API（仅 Admin）
+
+| 端点 | 方法 | 状态 | 优先级 |
+|------|------|------|--------|
+| `/_synapse/admin/v1/security/events` | GET | 待实现 | P1 |
+| `/_synapse/admin/v1/security/ip/blocks` | GET | 待实现 | P1 |
+| `/_synapse/admin/v1/security/ip/block` | POST | 待实现 | P1 |
+| `/_synapse/admin/v1/security/ip/unblock` | POST | 待实现 | P1 |
+| `/_synapse/admin/v1/security/ip/reputation/:ip` | GET | 待实现 | P1 |
+| `/_synapse/admin/v1/status` | GET | 待实现 | P1 |
+
+**注意**：安全控制模块仅对管理员开放，不对外发布。
 
 ---
 
