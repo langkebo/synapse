@@ -1,8 +1,8 @@
 # Synapse Rust 开发规范文档
 
-> **版本**：1.0.0  
+> **版本**：1.1.0  
 > **编制日期**：2026-01-28  
-> **状态**：草稿  
+> **状态**：正式发布  
 > **适用范围**：Synapse Rust 项目所有开发人员
 
 ---
@@ -676,7 +676,271 @@ lto = true
 
 ---
 
-## 八、附录
+## 八、增强功能模块开发规范
+
+### 8.1 模块结构规范
+
+增强功能模块遵循项目统一架构，每个模块包含以下组件：
+
+```
+src/
+├── storage/
+│   ├── friend.rs           # 好友关系存储
+│   ├── private.rs          # 私聊会话存储
+│   └── voice.rs            # 语音消息存储
+├── services/
+│   ├── friend_service.rs   # 好友服务
+│   ├── private_chat_service.rs  # 私聊服务
+│   └── voice_service.rs    # 语音服务
+└── web/
+    └── routes/
+        ├── friend.rs       # 好友 API 路由
+        ├── private.rs      # 私聊 API 路由
+        └── voice.rs        # 语音 API 路由
+```
+
+### 8.2 存储层开发规范
+
+增强功能存储模块遵循统一的存储层设计模式：
+
+```rust
+// 文件: src/storage/friend.rs
+use sqlx::{Pool, Postgres};
+use crate::common::*;
+
+pub struct FriendStorage<'a> {
+    pool: &'a PgPool,
+}
+
+impl<'a> FriendStorage<'a> {
+    pub fn new(pool: &'a PgPool) -> Self {
+        Self { pool }
+    }
+    
+    pub async fn create_friend_relation(
+        &self,
+        user_id: &str,
+        friend_id: &str,
+        remark: Option<&str>,
+        category_id: Option<&str>,
+    ) -> Result<FriendRelation, sqlx::Error> {
+        // 实现逻辑
+        unimplemented!()
+    }
+    
+    pub async fn get_friends(
+        &self,
+        user_id: &str,
+        category_id: Option<&str>,
+        limit: u64,
+        offset: u64,
+    ) -> Result<Vec<FriendInfo>, sqlx::Error> {
+        // 实现逻辑
+        unimplemented!()
+    }
+}
+```
+
+### 8.3 服务层开发规范
+
+服务层负责业务逻辑处理，调用存储层和缓存层：
+
+```rust
+// 文件: src/services/friend_service.rs
+use std::sync::Arc;
+use crate::cache::CacheManager;
+use crate::storage::friend::*;
+
+pub struct FriendService {
+    friend_storage: FriendStorage<'static>,
+    request_storage: FriendRequestStorage<'static>,
+    cache: Arc<CacheManager>,
+}
+
+impl FriendService {
+    pub fn new(
+        pool: &'static PgPool,
+        cache: Arc<CacheManager>,
+    ) -> Self {
+        Self {
+            friend_storage: FriendStorage::new(pool),
+            request_storage: FriendRequestStorage::new(pool),
+            cache,
+        }
+    }
+    
+    pub async fn add_friend(
+        &self,
+        user_id: &str,
+        target_id: &str,
+        message: Option<&str>,
+    ) -> ApiResult<FriendRequest> {
+        // 业务逻辑实现
+        unimplemented!()
+    }
+}
+```
+
+### 8.4 API 路由开发规范
+
+增强功能 API 路由定义在独立的路由文件中：
+
+```rust
+// 文件: src/web/routes/friend.rs
+use axum::{Router, Json, extract::State};
+use crate::web::AppState;
+use crate::common::*;
+
+pub fn create_router() -> Router<AppState> {
+    Router::new()
+        .route("/friends", get(get_friends))
+        .route("/friend/request", post(send_friend_request))
+        .route("/friend/request/:request_id/respond", post(respond_friend_request))
+        .route("/friend/requests", get(get_friend_requests))
+        .route("/friend/categories", get(get_categories).post(create_category))
+        .route("/friend/blocks", get(get_blocked_users))
+}
+
+async fn get_friends(
+    State(state): State<AppState>,
+    Query(params): Query<FriendListParams>,
+) -> ApiResult<Json<FriendListResponse>> {
+    state.friend_service.get_friends(
+        &params.user_id,
+        params.category_id.as_deref(),
+        params.limit.unwrap_or(50),
+        params.cursor.as_deref(),
+    ).await.map(Json)
+}
+```
+
+### 8.5 数据库 schema 规范
+
+增强功能表遵循统一的命名规范：
+
+```sql
+-- 好友系统表
+CREATE TABLE user_friends (
+    id BIGSERIAL PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    friend_id TEXT NOT NULL,
+    category_id TEXT,
+    remark TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(user_id, friend_id)
+);
+
+CREATE TABLE friend_requests (
+    id BIGSERIAL PRIMARY KEY,
+    requester_id TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    message TEXT,
+    category_id TEXT,
+    status TEXT DEFAULT 'pending',
+    expires_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE TABLE friend_categories (
+    id BIGSERIAL PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    sort_order INTEGER DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE TABLE blocked_users (
+    user_id TEXT NOT NULL,
+    blocked_id TEXT NOT NULL,
+    reason TEXT,
+    blocked_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    PRIMARY KEY(user_id, blocked_id)
+);
+
+-- 私聊管理表
+CREATE TABLE private_sessions (
+    id BIGSERIAL PRIMARY KEY,
+    session_id TEXT NOT NULL UNIQUE,
+    creator_id TEXT NOT NULL,
+    session_name TEXT,
+    ttl_seconds INTEGER,
+    auto_delete BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE TABLE private_messages (
+    id BIGSERIAL PRIMARY KEY,
+    message_id TEXT NOT NULL UNIQUE,
+    session_id TEXT NOT NULL,
+    sender_id TEXT NOT NULL,
+    content TEXT NOT NULL,
+    message_type TEXT DEFAULT 'm.text',
+    expires_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 语音消息表
+CREATE TABLE voice_messages (
+    id BIGSERIAL PRIMARY KEY,
+    message_id TEXT NOT NULL UNIQUE,
+    user_id TEXT NOT NULL,
+    file_format TEXT NOT NULL,
+    file_size BIGINT NOT NULL,
+    duration INTEGER NOT NULL,
+    file_url TEXT NOT NULL,
+    room_id TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+```
+
+### 8.6 安全模块特殊规范
+
+安全控制模块仅限 Admin API 访问，需要额外的权限检查：
+
+```rust
+// 安全模块路由开发规范
+pub fn create_security_router() -> Router<AppState> {
+    Router::new()
+        .route("/security/events", get(get_security_events))
+        .route("/security/ip/blocks", get(get_blocked_ips))
+        .route("/security/ip/block", post(block_ip))
+        .route("/security/ip/unblock", post(unblock_ip))
+        // 所有路由都需要管理员权限
+        .layer(tower::ServiceBuilder::new()
+            .layer(axum::extract::Extension(admin_auth_middleware)))
+}
+
+async fn admin_auth_middleware(
+    State(state): State<AppState>,
+    req: Request,
+    next: Next,
+) -> Result<Response, ApiError> {
+    // 检查用户是否为管理员
+    let user_id = extract_user_id(&req)?;
+    let is_admin = state.auth_service.is_admin(user_id).await?;
+    
+    if !is_admin {
+        return Err(ApiError::forbidden("Admin access required".to_string()));
+    }
+    
+    Ok(next.run(req).await)
+}
+```
+
+### 8.7 发布策略规范
+
+增强功能模块的发布策略：
+
+| 模块 | 发布范围 | 认证要求 | 速率限制 |
+|------|----------|----------|----------|
+| 好友系统 | 对外 | 用户认证 | 标准 |
+| 私聊管理 | 对外 | 用户认证 | 标准 |
+| 语音消息 | 对外 | 用户认证 | 严格 |
+| 安全控制 | 内部 | 管理员认证 | 严格 |
+
+---
+
+## 九、附录
 
 ### 8.1 常用 rustfmt 配置
 

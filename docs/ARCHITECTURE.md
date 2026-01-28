@@ -1,8 +1,8 @@
 # Synapse Rust 架构设计文档
 
-> **版本**：1.0.0  
+> **版本**：1.1.0  
 > **编制日期**：2026-01-28  
-> **状态**：草稿  
+> **状态**：正式发布  
 > **参考标准**：[Synapse 官方文档](https://element-hq.github.io/synapse/latest/)、[Matrix 规范](https://spec.matrix.org/)
 
 ---
@@ -477,7 +477,519 @@ pub trait UserStorageTrait {
 
 ---
 
-## 六、性能设计
+## 六、增强功能模块设计
+
+### 6.1 模块概述
+
+增强功能模块是本项目的扩展功能，包括好友系统、私聊管理、语音消息和内部安全控制。这些模块遵循项目统一架构，共享公共基础设施，提供更丰富的用户体验。
+
+**公开发布策略：**
+
+| 模块 | 发布策略 | API 前缀 | 说明 |
+|------|----------|----------|------|
+| 好友系统 | 对外发布 | `/_synapse/enhanced/friend` | 核心社交功能 |
+| 私聊管理 | 对外发布 | `/_synapse/enhanced/private` | 端到端加密通信 |
+| 语音消息 | 对外发布 | `/_synapse/enhanced/voice` | 语音消息处理 |
+| 安全控制 | 内部管理 | `/_synapse/admin/v1/security` | 仅 Admin API 开放 |
+
+### 6.2 好友系统模块（Friend）
+
+好友系统模块提供完整的用户关系管理能力，包括好友关系维护、请求处理、分组管理和用户屏蔽功能。
+
+#### 6.2.1 FriendStorage 设计
+
+```rust
+pub struct FriendStorage<'a> {
+    pool: &'a PgPool,
+}
+
+impl<'a> FriendStorage<'a> {
+    pub fn new(pool: &'a PgPool) -> Self
+    
+    pub async fn create_friend_relation(
+        &self,
+        user_id: &str,
+        friend_id: &str,
+        remark: Option<&str>,
+        category_id: Option<&str>,
+    ) -> Result<FriendRelation, sqlx::Error>
+    
+    pub async fn remove_friend(&self, user_id: &str, friend_id: &str) -> Result<(), sqlx::Error>
+    
+    pub async fn get_friends(
+        &self,
+        user_id: &str,
+        category_id: Option<&str>,
+        limit: u64,
+        offset: u64,
+    ) -> Result<Vec<FriendInfo>, sqlx::Error>
+    
+    pub async fn get_friend_by_id(&self, user_id: &str, friend_id: &str) -> Result<Option<FriendInfo>, sqlx::Error>
+    
+    pub async fn count_friends(&self, user_id: &str, category_id: Option<&str>) -> Result<i64, sqlx::Error>
+    
+    pub async fn is_friend(&self, user_id: &str, friend_id: &str) -> Result<bool, sqlx::Error>
+}
+
+pub struct FriendRequestStorage<'a> {
+    pool: &'a PgPool,
+}
+
+impl<'a> FriendRequestStorage<'a> {
+    pub async fn create_request(
+        &self,
+        requester_id: &str,
+        target_id: &str,
+        message: Option<&str>,
+        category_id: Option<&str>,
+    ) -> Result<FriendRequest, sqlx::Error>
+    
+    pub async fn respond_to_request(
+        &self,
+        request_id: &str,
+        action: &str,
+    ) -> Result<(), sqlx::Error>
+    
+    pub async fn get_pending_requests(&self, user_id: &str, limit: u64, offset: u64) -> Result<Vec<FriendRequest>, sqlx::Error>
+    
+    pub async fn expire_requests(&self) -> Result<u64, sqlx::Error>
+}
+
+pub struct FriendCategoryStorage<'a> {
+    pool: &'a PgPool,
+}
+
+impl<'a> FriendCategoryStorage<'a> {
+    pub async fn create_category(&self, user_id: &str, name: &str, sort_order: i32) -> Result<FriendCategory, sqlx::Error>
+    
+    pub async fn update_category(&self, category_id: &str, name: Option<&str>, sort_order: Option<i32>) -> Result<(), sqlx::Error>
+    
+    pub async fn delete_category(&self, category_id: &str, move_friends: bool) -> Result<(), sqlx::Error>
+    
+    pub async fn get_categories(&self, user_id: &str) -> Result<Vec<FriendCategory>, sqlx::Error>
+}
+
+pub struct BlockedUserStorage<'a> {
+    pool: &'a PgPool,
+}
+
+impl<'a> BlockedUserStorage<'a> {
+    pub async fn block_user(&self, user_id: &str, blocked_id: &str, reason: Option<&str>) -> Result<(), sqlx::Error>
+    
+    pub async fn unblock_user(&self, user_id: &str, blocked_id: &str) -> Result<(), sqlx::Error>
+    
+    pub async fn get_blocked_users(&self, user_id: &str) -> Result<Vec<BlockedUser>, sqlx::Error>
+    
+    pub async fn is_blocked(&self, user_id: &str, target_id: &str) -> Result<bool, sqlx::Error>
+}
+```
+
+#### 6.2.2 FriendService 设计
+
+```rust
+pub struct FriendService {
+    friend_storage: FriendStorage<'static>,
+    request_storage: FriendRequestStorage<'static>,
+    category_storage: FriendCategoryStorage<'static>,
+    block_storage: BlockedUserStorage<'static>,
+    cache: Arc<CacheManager>,
+}
+
+impl FriendService {
+    pub async fn add_friend(&self, user_id: &str, target_id: &str, message: Option<&str>) -> ApiResult<FriendRequest>
+    
+    pub async fn accept_friend_request(&self, user_id: &str, request_id: &str) -> ApiResult<()>
+    
+    pub async fn reject_friend_request(&self, user_id: &str, request_id: &str) -> ApiResult<()>
+    
+    pub async fn remove_friend(&self, user_id: &str, friend_id: &str) -> ApiResult<()>
+    
+    pub async fn get_friends(&self, user_id: &str, category_id: Option<&str>, limit: u64, cursor: Option<&str>) -> ApiResult<FriendListResponse>
+    
+    pub async fn create_category(&self, user_id: &str, name: &str) -> ApiResult<FriendCategory>
+    
+    pub async fn block_user(&self, user_id: &str, blocked_id: &str, reason: Option<&str>) -> ApiResult<()>
+    
+    pub async fn unblock_user(&self, user_id: &str, blocked_id: &str) -> ApiResult<()>
+    
+    pub async fn get_recommendations(&self, user_id: &str, limit: u64) -> ApiResult<Vec<UserRecommendation>>
+}
+```
+
+### 6.3 私聊管理模块（PrivateChat）
+
+私聊管理模块提供端到端加密的私密通信能力，包括会话管理、消息传递和密钥分发功能。
+
+#### 6.3.1 PrivateSessionStorage 设计
+
+```rust
+pub struct PrivateSessionStorage<'a> {
+    pool: &'a PgPool,
+}
+
+impl<'a> PrivateSessionStorage<'a> {
+    pub fn new(pool: &'a PgPool) -> Self
+    
+    pub async fn create_session(
+        &self,
+        creator_id: &str,
+        participants: &[&str],
+        session_name: Option<&str>,
+        ttl_seconds: Option<i32>,
+    ) -> Result<PrivateSession, sqlx::Error>
+    
+    pub async fn get_session(&self, session_id: &str) -> Result<Option<PrivateSession>, sqlx::Error>
+    
+    pub async fn get_user_sessions(
+        &self,
+        user_id: &str,
+        limit: u64,
+        since: Option<i64>,
+    ) -> Result<Vec<PrivateSession>, sqlx::Error>
+    
+    pub async fn add_participant(&self, session_id: &str, user_id: &str) -> Result<(), sqlx::Error>
+    
+    pub async fn remove_participant(&self, session_id: &str, user_id: &str) -> Result<(), sqlx::Error>
+    
+    pub async fn delete_session(&self, session_id: &str, user_id: &str) -> Result<(), sqlx::Error>
+}
+
+pub struct PrivateMessageStorage<'a> {
+    pool: &'a PgPool,
+}
+
+impl<'a> PrivateMessageStorage<'a> {
+    pub async fn create_message(
+        &self,
+        session_id: &str,
+        sender_id: &str,
+        encrypted_content: &str,
+        message_type: &str,
+        ttl_seconds: Option<i32>,
+    ) -> Result<PrivateMessage, sqlx::Error>
+    
+    pub async fn get_messages(
+        &self,
+        session_id: &str,
+        user_id: &str,
+        limit: u64,
+        before: Option<i64>,
+        after: Option<i64>,
+    ) -> Result<Vec<PrivateMessage>, sqlx::Error>
+    
+    pub async fn mark_as_read(&self, message_id: &str, user_id: &str) -> Result<(), sqlx::Error>
+    
+    pub async fn get_unread_count(&self, user_id: &str) -> Result<i64, sqlx::Error>
+    
+    pub async fn delete_expired_messages(&self) -> Result<u64, sqlx::Error>
+}
+
+pub struct SessionKeyStorage<'a> {
+    pool: &'a PgPool,
+}
+
+impl<'a> SessionKeyStorage<'a> {
+    pub async fn distribute_key(
+        &self,
+        session_id: &str,
+        user_id: &str,
+        device_id: &str,
+        encrypted_key: &str,
+    ) -> Result<(), sqlx::Error>
+    
+    pub async fn get_user_session_keys(&self, session_id: &str, user_id: &str) -> Result<Vec<SessionKey>, sqlx::Error>
+}
+```
+
+#### 6.3.2 PrivateChatService 设计
+
+```rust
+pub struct PrivateChatService {
+    session_storage: PrivateSessionStorage<'static>,
+    message_storage: PrivateMessageStorage<'static>,
+    key_storage: SessionKeyStorage<'static>,
+    cache: Arc<CacheManager>,
+    crypto: Arc<CryptoService>,
+}
+
+impl PrivateChatService {
+    pub async fn create_session(
+        &self,
+        creator_id: &str,
+        participants: &[&str],
+        session_name: Option<&str>,
+        ttl_seconds: Option<i32>,
+    ) -> ApiResult<PrivateSession>
+    
+    pub async fn send_message(
+        &self,
+        session_id: &str,
+        sender_id: &str,
+        content: &str,
+        message_type: &str,
+    ) -> ApiResult<PrivateMessage>
+    
+    pub async fn get_messages(
+        &self,
+        session_id: &str,
+        user_id: &str,
+        limit: u64,
+        before: Option<i64>,
+        after: Option<i64>,
+    ) -> ApiResult<Vec<PrivateMessage>>
+    
+    pub async fn get_sessions(&self, user_id: &str, limit: u64, since: Option<i64>) -> ApiResult<Vec<PrivateSession>>
+    
+    pub async fn mark_message_read(&self, message_id: &str, user_id: &str) -> ApiResult<()>
+    
+    pub async fn get_unread_count(&self, user_id: &str) -> ApiResult<i64>
+    
+    pub async fn leave_session(&self, session_id: &str, user_id: &str) -> ApiResult<()>
+}
+```
+
+### 6.4 语音消息模块（Voice）
+
+语音消息模块提供语音消息的录制、上传、处理和播放功能。
+
+#### 6.4.1 VoiceStorage 设计
+
+```rust
+pub struct VoiceStorage<'a> {
+    pool: &'a PgPool,
+}
+
+impl<'a> VoiceStorage<'a> {
+    pub fn new(pool: &'a PgPool) -> Self
+    
+    pub async fn create_voice_message(
+        &self,
+        user_id: &str,
+        file_format: &str,
+        file_size: i64,
+        duration: i32,
+        file_url: &str,
+        room_id: Option<&str>,
+    ) -> Result<VoiceMessage, sqlx::Error>
+    
+    pub async fn get_voice_message(&self, message_id: &str) -> Result<Option<VoiceMessage>, sqlx::Error>
+    
+    pub async fn get_user_voice_messages(
+        &self,
+        user_id: &str,
+        limit: u64,
+        offset: u64,
+    ) -> Result<Vec<VoiceMessage>, sqlx::Error>
+    
+    pub async fn delete_voice_message(&self, message_id: &str, user_id: &str) -> Result<(), sqlx::Error>
+    
+    pub async fn get_user_stats(&self, user_id: &str) -> Result<VoiceMessageStats, sqlx::Error>
+}
+```
+
+#### 6.4.2 VoiceService 设计
+
+```rust
+pub struct VoiceService {
+    storage: VoiceStorage<'static>,
+    cache: Arc<CacheManager>,
+    media_path: String,
+    max_file_size: u64,
+    max_duration: u64,
+}
+
+impl VoiceService {
+    pub async fn upload_voice(
+        &self,
+        user_id: &str,
+        audio_data: &[u8],
+        file_format: &str,
+    ) -> ApiResult<VoiceUploadResponse>
+    
+    pub async fn get_voice_message(&self, message_id: &str, user_id: &str) -> ApiResult<VoiceMessage>
+    
+    pub async fn delete_voice_message(&self, message_id: &str, user_id: &str) -> ApiResult<()>
+    
+    pub async fn get_user_voices(&self, user_id: &str, limit: u64, offset: u64) -> ApiResult<Vec<VoiceMessage>>
+    
+    pub async fn get_user_voice_stats(&self, user_id: &str) -> ApiResult<VoiceMessageStats>
+    
+    fn validate_audio(&self, data: &[u8], format: &str) -> Result<AudioMetadata, ApiError>
+    
+    fn process_audio(&self, data: &[u8], format: &str) -> Result<Vec<u8>, ApiError>
+}
+```
+
+### 6.5 安全控制模块（Security）（仅内部管理）
+
+安全控制模块提供全面的安全防护能力，但仅通过 Admin API 对内开放，不对外发布。
+
+#### 6.5.1 SecurityEventStorage 设计
+
+```rust
+pub struct SecurityEventStorage<'a> {
+    pool: &'a PgPool,
+}
+
+impl<'a> SecurityEventStorage<'a> {
+    pub fn new(pool: &'a PgPool) -> Self
+    
+    pub async fn create_event(
+        &self,
+        event_type: &str,
+        user_id: Option<&str>,
+        ip_address: &str,
+        severity: &str,
+        description: &str,
+        metadata: Option<serde_json::Value>,
+    ) -> Result<SecurityEvent, sqlx::Error>
+    
+    pub async fn get_events(
+        &self,
+        user_id: Option<&str>,
+        ip_address: Option<&str>,
+        severity: Option<&str>,
+        start_time: Option<i64>,
+        end_time: Option<i64>,
+        limit: u64,
+    ) -> Result<Vec<SecurityEvent>, sqlx::Error>
+    
+    pub async fn resolve_event(&self, event_id: &str) -> Result<(), sqlx::Error>
+}
+
+pub struct BlockedIPStorage<'a> {
+    pool: &'a PgPool,
+}
+
+impl<'a> BlockedIPStorage<'a> {
+    pub async fn block_ip(
+        &self,
+        ip_address: &str,
+        reason: &str,
+        duration_seconds: Option<i32>,
+    ) -> Result<(), sqlx::Error>
+    
+    pub async fn unblock_ip(&self, ip_address: &str) -> Result<(), sqlx::Error>
+    
+    pub async fn get_blocked_ips(&self) -> Result<Vec<BlockedIP>, sqlx::Error>
+    
+    pub async fn is_blocked(&self, ip_address: &str) -> Result<bool, sqlx::Error>
+    
+    pub async fn cleanup_expired_blocks(&self) -> Result<u64, sqlx::Error>
+}
+
+pub struct IPReputationStorage<'a> {
+    pool: &'a PgPool,
+}
+
+impl<'a> IPReputationStorage<'a> {
+    pub async fn update_reputation(&self, ip_address: &str, score: i32) -> Result<(), sqlx::Error>
+    
+    pub async fn get_reputation(&self, ip_address: &str) -> Result<IPReputation, sqlx::Error>
+    
+    pub async fn record_request(&self, ip_address: &str, success: bool) -> Result<(), sqlx::Error>
+    
+    pub async fn calculate_reputation(&self, ip_address: &str) -> Result<i32, sqlx::Error>
+}
+```
+
+#### 6.5.2 SecurityService 设计（仅 Admin）
+
+```rust
+pub struct SecurityService {
+    event_storage: SecurityEventStorage<'static>,
+    ip_storage: BlockedIPStorage<'static>,
+    reputation_storage: IPReputationStorage<'static>,
+    cache: Arc<CacheManager>,
+}
+
+impl SecurityService {
+    pub async fn analyze_threat(
+        &self,
+        user_id: Option<&str>,
+        ip_address: &str,
+        endpoint: &str,
+        method: &str,
+        content: Option<&str>,
+    ) -> Vec<SecurityThreat>
+    
+    pub async fn block_ip(
+        &self,
+        admin_id: &str,
+        ip_address: &str,
+        reason: &str,
+        duration_seconds: Option<i32>,
+    ) -> ApiResult<()>
+    
+    pub async fn unblock_ip(&self, admin_id: &str, ip_address: &str) -> ApiResult<()>
+    
+    pub async fn get_security_events(
+        &self,
+        admin_id: &str,
+        filters: SecurityEventFilters,
+        limit: u64,
+    ) -> ApiResult<Vec<SecurityEvent>>
+    
+    pub async fn get_blocked_ips(&self, admin_id: &str) -> ApiResult<Vec<BlockedIP>>
+    
+    pub async fn get_ip_reputation(&self, admin_id: &str, ip_address: &str) -> ApiResult<IPReputation>
+    
+    pub async fn get_system_status(&self, admin_id: &str) -> ApiResult<SystemStatus>
+}
+```
+
+### 6.6 增强功能 API 路由
+
+增强功能模块的 API 路由组织如下：
+
+```rust
+pub fn create_enhanced_router(state: AppState) -> Router {
+    Router::new()
+        // 好友系统
+        .route("/friends", get(get_friends))
+        .route("/friend/request", post(send_friend_request))
+        .route("/friend/request/:request_id/respond", post(respond_friend_request))
+        .route("/friend/requests", get(get_friend_requests))
+        .route("/friend/categories", get(get_categories).post(create_category))
+        .route("/friend/categories/:category_id", put(update_category).delete(delete_category))
+        .route("/friend/blocks", get(get_blocked_users))
+        .route("/friend/blocks/:user_id", post(block_user).delete(unblock_user))
+        .route("/friend/recommendations", get(get_recommendations))
+        .route("/friend/batch", post(batch_operation))
+        
+        // 私聊管理
+        .route("/private/sessions", get(get_sessions).post(create_session))
+        .route("/private/sessions/:session_id", delete(delete_session))
+        .route("/private/sessions/:session_id/messages", get(get_messages).post(send_message))
+        .route("/private/messages/:message_id/read", post(mark_read))
+        .route("/private/unread-count", get(get_unread_count))
+        .route("/private/search", post(search_messages))
+        
+        // 语音消息
+        .route("/voice/upload", post(upload_voice))
+        .route("/voice/messages/:message_id", get(get_voice).delete(delete_voice))
+        .route("/voice/user/:user_id", get(get_user_voices))
+        .route("/voice/user/:user_id/stats", get(get_voice_stats))
+        
+        .with_state(state)
+}
+
+pub fn create_admin_security_router(state: AppState) -> Router {
+    Router::new()
+        .route("/security/events", get(get_security_events))
+        .route("/security/ip/blocks", get(get_blocked_ips))
+        .route("/security/ip/block", post(block_ip))
+        .route("/security/ip/unblock", post(unblock_ip))
+        .route("/security/ip/reputation/:ip", get(get_ip_reputation))
+        .route("/status", get(get_system_status))
+        
+        .with_state(state)
+}
+```
+
+---
+
+## 七、性能设计
 
 ### 6.1 连接池配置
 
