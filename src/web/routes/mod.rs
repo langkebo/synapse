@@ -1,0 +1,523 @@
+use serde::{Serialize, Deserialize};
+use axum::{routing::{get, post, put, delete}, Router, extract::{State, Json, Path, Query}};
+use serde_json::{Value, json};
+use std::sync::Arc;
+use crate::common::*;
+use crate::services::*;
+use crate::cache::*;
+
+#[derive(Clone)]
+pub struct AppState {
+    pub services: ServiceContainer,
+    pub cache: Arc<CacheManager>,
+}
+
+impl AppState {
+    pub fn new(services: ServiceContainer, cache: Arc<CacheManager>) -> Self {
+        Self { services, cache }
+    }
+}
+
+pub fn create_router(state: AppState) -> Router {
+    Router::new()
+        .route("/", get(|| async { json!({"msg": "Synapse Rust Matrix Server", "version": "0.1.0"}) }))
+        .route("/_matrix/client/versions", get(get_client_versions))
+        .route("/_matrix/client/r0/register", post(register))
+        .route("/_matrix/client/r0/register/available", get(check_username_availability))
+        .route("/_matrix/client/r0/login", post(login))
+        .route("/_matrix/client/r0/logout", post(logout))
+        .route("/_matrix/client/r0/logout/all", post(logout_all))
+        .route("/_matrix/client/r0/refresh", post(refresh_token))
+        .route("/_matrix/client/r0/account/whoami", get(whoami))
+        .route("/_matrix/client/r0/account/profile/:user_id", get(get_profile))
+        .route("/_matrix/client/r0/account/profile/:user_id/displayname", put(update_displayname))
+        .route("/_matrix/client/r0/account/profile/:user_id/avatar_url", put(update_avatar))
+        .route("/_matrix/client/r0/account/password", post(change_password))
+        .route("/_matrix/client/r0/account/deactivate", post(deactivate_account))
+        .route("/_matrix/client/r0/sync", get(sync))
+        .route("/_matrix/client/r0/rooms/:room_id/messages", get(get_messages))
+        .route("/_matrix/client/r0/rooms/:room_id/send/:event_type", post(send_message))
+        .route("/_matrix/client/r0/rooms/:room_id/join", post(join_room))
+        .route("/_matrix/client/r0/rooms/:room_id/leave", post(leave_room))
+        .route("/_matrix/client/r0/rooms/:room_id/invite", post(invite_user))
+        .route("/_matrix/client/r0/createRoom", post(create_room))
+        .route("/_matrix/client/r0/directory/room/:room_id", get(get_room))
+        .route("/_matrix/client/r0/directory/room/:room_id", delete(delete_room))
+        .route("/_matrix/client/r0/publicRooms", get(get_public_rooms))
+        .route("/_matrix/client/r0/publicRooms", post(create_public_room))
+        .route("/_matrix/client/r0/user/:user_id/rooms", get(get_user_rooms))
+        .route("/_matrix/client/r0/devices", get(get_devices))
+        .route("/_matrix/client/r0/devices/:device_id", get(get_device))
+        .route("/_matrix/client/r0/devices/:device_id", put(update_device))
+        .route("/_matrix/client/r0/devices/:device_id", delete(delete_device))
+        .route("/_matrix/client/r0/presence/:user_id/status", get(get_presence))
+        .route("/_matrix/client/r0/presence/:user_id/status", put(set_presence))
+        .route("/_matrix/client/r0/rooms/:room_id/state", get(get_room_state))
+        .route("/_matrix/client/r0/rooms/:room_id/state/:event_type", get(get_state_by_type))
+        .route("/_matrix/client/r0/rooms/:room_id/state/:event_type/:state_key", get(get_state_event))
+        .route("/_matrix/client/r0/rooms/:room_id/redact/:event_id", put(redact_event))
+        .route("/_matrix/client/r0/rooms/:room_id/kick", post(kick_user))
+        .route("/_matrix/client/r0/rooms/:room_id/ban", post(ban_user))
+        .route("/_matrix/client/r0/rooms/:room_id/unban", post(unban_user))
+        .with_state(state)
+}
+
+async fn get_client_versions() -> Json<Value> {
+    Json(json!({
+        "versions": ["r0.0.1", "r0.1.0", "r0.2.0", "r0.3.0", "r0.4.0", "r0.5.0", "r0.6.0"],
+        "unstable_features": {
+            "m.lazy_load_members": true,
+            "m.require_identity_server": false,
+            "m.supports_login_via_phone_number": true
+        }
+    }))
+}
+
+async fn register(State(state): State<AppState>, Json(body): Json<Value>) -> Result<Json<Value>, ApiError> {
+    let username = body.get("username").and_then(|v| v.as_str()).ok_or_else(|| ApiError::bad_request("Username required".to_string()))?;
+    let password = body.get("password").and_then(|v| v.as_str()).ok_or_else(|| ApiError::bad_request("Password required".to_string()))?;
+    let admin = body.get("admin").and_then(|v| v.as_bool()).unwrap_or(false);
+    let displayname = body.get("displayname").and_then(|v| v.as_str());
+
+    let registration_service = RegistrationService::new(&state.services);
+    registration_service.register_user(username, password, admin, displayname).await
+}
+
+async fn check_username_availability(State(state): State<AppState>, Query(params): Query<Value>) -> Result<Json<Value>, ApiError> {
+    let username = params.get("username").and_then(|v| v.as_str()).ok_or_else(|| ApiError::bad_request("Username required".to_string()))?;
+    
+    let exists = state.services.user_storage.user_exists(&format!("@{}:{}", username, state.services.server_name)).await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    Ok(Json(json!({
+        "available": !exists,
+        "username": username
+    })))
+}
+
+async fn login(State(state): State<AppState>, Json(body): Json<Value>) -> Result<Json<Value>, ApiError> {
+    let username = body.get("username").and_then(|v| v.as_str()).ok_or_else(|| ApiError::bad_request("Username required".to_string()))?;
+    let password = body.get("password").and_then(|v| v.as_str()).ok_or_else(|| ApiError::bad_request("Password required".to_string()))?;
+    let device_id = body.get("device_id").and_then(|v| v.as_str());
+    let initial_display_name = body.get("initial_display_name").and_then(|v| v.as_str());
+
+    let (user, access_token, refresh_token, device_id) = state.services.auth_service.login(username, password, device_id, initial_display_name).await?;
+
+    Ok(Json(json!({
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "expires_in": state.services.auth_service.token_expiry,
+        "device_id": device_id,
+        "user_id": user.name,
+        "well_known": {
+            "m.homeserver": {
+                "base_url": format!("http://{}:8008", state.services.server_name)
+            }
+        }
+    })))
+}
+
+async fn logout(State(state): State<AppState>, Json(body): Json<Value>) -> Result<Json<Value>, ApiError> {
+    let token = body.get("access_token").and_then(|v| v.as_str()).ok_or_else(|| ApiError::bad_request("Access token required".to_string()))?;
+    
+    let (user_id, _, _) = state.services.auth_service.validate_token(token).await?;
+    state.services.auth_service.logout(token, &user_id).await?;
+
+    Ok(Json(json!({})))
+}
+
+async fn logout_all(State(state): State<AppState>, Json(body): Json<Value>) -> Result<Json<Value>, ApiError> {
+    let token = body.get("access_token").and_then(|v| v.as_str()).ok_or_else(|| ApiError::bad_request("Access token required".to_string()))?;
+    
+    let (user_id, _, _) = state.services.auth_service.validate_token(token).await?;
+    state.services.auth_service.logout_all(&user_id).await?;
+
+    Ok(Json(json!({})))
+}
+
+async fn refresh_token(State(state): State<AppState>, Json(body): Json<Value>) -> Result<Json<Value>, ApiError> {
+    let refresh_token = body.get("refresh_token").and_then(|v| v.as_str()).ok_or_else(|| ApiError::bad_request("Refresh token required".to_string()))?;
+    
+    let (new_access, new_refresh, device_id) = state.services.auth_service.refresh_token(refresh_token).await?;
+
+    Ok(Json(json!({
+        "access_token": new_access,
+        "refresh_token": new_refresh,
+        "expires_in": state.services.auth_service.token_expiry,
+        "device_id": device_id
+    })))
+}
+
+async fn whoami(State(state): State<AppState>, headers: axum::http::HeaderMap) -> Result<Json<Value>, ApiError> {
+    let token = extract_token(&headers)?;
+    let (user_id, displayname, admin) = state.services.auth_service.validate_token(&token).await?;
+
+    Ok(Json(json!({
+        "user_id": user_id,
+        "displayname": displayname,
+        "admin": admin
+    })))
+}
+
+async fn get_profile(State(state): State<AppState>, Path(user_id): Path<String>) -> Result<Json<Value>, ApiError> {
+    let registration_service = RegistrationService::new(&state.services);
+    registration_service.get_user_profile(&user_id).await
+}
+
+async fn update_displayname(State(state): State<AppState>, Path(user_id): Path<String>, Json(body): Json<Value>) -> Result<Json<Value>, ApiError> {
+    let displayname = body.get("displayname").and_then(|v| v.as_str()).ok_or_else(|| ApiError::bad_request("Displayname required".to_string()))?;
+    
+    let registration_service = RegistrationService::new(&state.services);
+    registration_service.update_user_profile(&user_id, Some(displayname), None).await
+}
+
+async fn update_avatar(State(state): State<AppState>, Path(user_id): Path<String>, Json(body): Json<Value>) -> Result<Json<Value>, ApiError> {
+    let avatar_url = body.get("avatar_url").and_then(|v| v.as_str()).ok_or_else(|| ApiError::bad_request("Avatar URL required".to_string()))?;
+    
+    let registration_service = RegistrationService::new(&state.services);
+    registration_service.update_user_profile(&user_id, None, Some(avatar_url)).await
+}
+
+async fn change_password(State(state): State<AppState>, Json(body): Json<Value>) -> Result<Json<Value>, ApiError> {
+    let token = body.get("access_token").and_then(|v| v.as_str()).ok_or_else(|| ApiError::bad_request("Access token required".to_string()))?;
+    let new_password = body.get("new_password").and_then(|v| v.as_str()).ok_or_else(|| ApiError::bad_request("New password required".to_string()))?;
+    
+    let (user_id, _, _) = state.services.auth_service.validate_token(&token).await?;
+    
+    let registration_service = RegistrationService::new(&state.services);
+    registration_service.change_password(&user_id, new_password).await?;
+
+    Ok(Json(json!({})))
+}
+
+async fn deactivate_account(State(state): State<AppState>, Json(body): Json<Value>) -> Result<Json<Value>, ApiError> {
+    let token = body.get("access_token").and_then(|v| v.as_str()).ok_or_else(|| ApiError::bad_request("Access token required".to_string()))?;
+    
+    let (user_id, _, _) = state.services.auth_service.validate_token(&token).await?;
+    
+    let registration_service = RegistrationService::new(&state.services);
+    registration_service.deactivate_account(&user_id).await
+}
+
+async fn sync(State(state): State<AppState>, headers: axum::http::HeaderMap, Query(params): Query<Value>) -> Result<Json<Value>, ApiError> {
+    let token = extract_token(&headers)?;
+    let (user_id, _, _) = state.services.auth_service.validate_token(&token).await?;
+    
+    let timeout = params.get("timeout").and_then(|v| v.as_u64()).unwrap_or(30000);
+    let full_state = params.get("full_state").and_then(|v| v.as_bool()).unwrap_or(false);
+    let set_presence = params.get("set_presence").and_then(|v| v.as_str()).unwrap_or("online");
+
+    let sync_service = SyncService::new(&state.services);
+    sync_service.sync(&user_id, Some(&token), timeout, full_state, set_presence).await
+}
+
+async fn get_messages(State(state): State<AppState>, Path(room_id): Path<String>, Query(params): Query<Value>) -> Result<Json<Value>, ApiError> {
+    let from = params.get("from").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()).unwrap_or(0);
+    let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(10);
+    let direction = params.get("dir").and_then(|v| v.as_str()).unwrap_or("b");
+
+    let room_service = RoomService::new(&state.services);
+    room_service.get_room_messages(&room_id, from as i64, limit as i64, direction).await
+}
+
+async fn send_message(State(state): State<AppState>, Path((room_id, event_type)): Path<(String, String)>, Json(body): Json<Value>) -> Result<Json<Value>, ApiError> {
+    let token = body.get("access_token").and_then(|v| v.as_str()).ok_or_else(|| ApiError::bad_request("Access token required".to_string()))?;
+    let (user_id, _, _) = state.services.auth_service.validate_token(&token).await?;
+    
+    let msgtype = body.get("msgtype").and_then(|v| v.as_str()).unwrap_or("m.room.message");
+    let body = body.get("body").and_then(|v| v.as_str()).ok_or_else(|| ApiError::bad_request("Message body required".to_string()))?;
+
+    let room_service = RoomService::new(&state.services);
+    room_service.send_message(&room_id, &user_id, msgtype, body, None).await
+}
+
+async fn join_room(State(state): State<AppState>, Path(room_id): Path<String>, headers: axum::http::HeaderMap) -> Result<Json<Value>, ApiError> {
+    let token = extract_token(&headers)?;
+    let (user_id, _, _) = state.services.auth_service.validate_token(&token).await?;
+
+    let room_service = RoomService::new(&state.services);
+    room_service.join_room(&room_id, &user_id).await
+}
+
+async fn invite_user(State(state): State<AppState>, Path(room_id): Path<String>, Json(body): Json<Value>, headers: axum::http::HeaderMap) -> Result<Json<Value>, ApiError> {
+    let token = extract_token(&headers)?;
+    let (user_id, _, _) = state.services.auth_service.validate_token(&token).await?;
+    let invitee = body.get("user_id").and_then(|v| v.as_str()).ok_or_else(|| ApiError::bad_request("User ID required".to_string()))?;
+
+    let room_service = RoomService::new(&state.services);
+    room_service.invite_user(&room_id, &user_id, invitee).await
+}
+
+async fn create_room(State(state): State<AppState>, Json(body): Json<Value>, headers: axum::http::HeaderMap) -> Result<Json<Value>, ApiError> {
+    let token = extract_token(&headers)?;
+    let (user_id, _, _) = state.services.auth_service.validate_token(&token).await?;
+
+    let visibility = body.get("visibility").and_then(|v| v.as_str());
+    let room_alias = body.get("room_alias_name").and_then(|v| v.as_str());
+    let name = body.get("name").and_then(|v| v.as_str());
+    let topic = body.get("topic").and_then(|v| v.as_str());
+    let invite = body.get("invite").and_then(|v| v.as_array()).map(|arr| arr.iter().filter_map(|x| x.as_str().map(String::from)).collect());
+    let preset = body.get("preset").and_then(|v| v.as_str());
+
+    let room_service = RoomService::new(&state.services);
+    room_service.create_room(&user_id, visibility, room_alias, name, topic, invite.as_ref(), preset).await
+}
+
+async fn get_room(State(state): State<AppState>, Path(room_id): Path<String>) -> Result<Json<Value>, ApiError> {
+    let room_service = RoomService::new(&state.services);
+    room_service.get_room(&room_id).await
+}
+
+async fn delete_room(State(state): State<AppState>, Path(room_id): Path<String>, headers: axum::http::HeaderMap) -> Result<Json<Value>, ApiError> {
+    let token = extract_token(&headers)?;
+    let (_, _, admin) = state.services.auth_service.validate_token(&token).await?;
+    
+    if !admin {
+        return Err(ApiError::forbidden("Admin access required".to_string()));
+    }
+
+    Ok(Json(json!({})))
+}
+
+async fn get_public_rooms(State(state): State<AppState>, Query(params): Query<Value>) -> Result<Json<Value>, ApiError> {
+    let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(10);
+    let since = params.get("since").and_then(|v| v.as_str());
+
+    let room_service = RoomService::new(&state.services);
+    room_service.get_public_rooms(limit as i64, since).await
+}
+
+async fn create_public_room(State(state): State<AppState>, Json(body): Json<Value>, headers: axum::http::HeaderMap) -> Result<Json<Value>, ApiError> {
+    let token = extract_token(&headers)?;
+    let (user_id, _, _) = state.services.auth_service.validate_token(&token).await?;
+
+    let visibility = Some("public");
+    let name = body.get("name").and_then(|v| v.as_str());
+    let topic = body.get("topic").and_then(|v| v.as_str());
+
+    let room_service = RoomService::new(&state.services);
+    room_service.create_room(&user_id, visibility, None, name, topic, None, None).await
+}
+
+async fn get_user_rooms(State(state): State<AppState>, Path(user_id): Path<String>, headers: axum::http::HeaderMap) -> Result<Json<Value>, ApiError> {
+    let token = extract_token(&headers)?;
+    let (_, _, _) = state.services.auth_service.validate_token(&token).await?;
+
+    let room_service = RoomService::new(&state.services);
+    let rooms = room_service.get_joined_rooms(&user_id).await?;
+
+    Ok(Json(json!({
+        "joined_rooms": rooms
+    })))
+}
+
+async fn get_devices(State(state): State<AppState>, headers: axum::http::HeaderMap) -> Result<Json<Value>, ApiError> {
+    let token = extract_token(&headers)?;
+    let (user_id, _, _) = state.services.auth_service.validate_token(&token).await?;
+
+    let devices = state.services.device_storage.get_user_devices(&user_id).await
+        .map_err(|e| ApiError::internal(format!("Failed to get devices: {}", e)))?;
+
+    let device_list: Vec<Value> = devices.iter()
+        .map(|d| json!({
+            "device_id": d.device_id,
+            "display_name": d.display_name,
+            "last_seen_ts": d.last_seen_ts.timestamp_millis_opt().unwrap_or(0),
+            "user_id": d.user_id
+        }))
+        .collect();
+
+    Ok(Json(json!({ "devices": device_list })))
+}
+
+async fn get_device(State(state): State<AppState>, Path(device_id): Path<String>, headers: axum::http::HeaderMap) -> Result<Json<Value>, ApiError> {
+    let token = extract_token(&headers)?;
+    let (user_id, _, _) = state.services.auth_service.validate_token(&token).await?;
+
+    let device = state.services.device_storage.get_device(&device_id, &user_id).await
+        .map_err(|e| ApiError::internal(format!("Failed to get device: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Device not found".to_string()))?;
+
+    Ok(Json(json!({
+        "device_id": device.device_id,
+        "display_name": device.display_name,
+        "last_seen_ts": device.last_seen_ts.timestamp_millis_opt().unwrap_or(0),
+        "user_id": device.user_id
+    })))
+}
+
+async fn update_device(State(state): State<AppState>, Path(device_id): Path<String>, Json(body): Json<Value>, headers: axum::http::HeaderMap) -> Result<Json<Value>, ApiError> {
+    let token = extract_token(&headers)?;
+    let (user_id, _, _) = state.services.auth_service.validate_token(&token).await?;
+    let display_name = body.get("display_name").and_then(|v| v.as_str()).ok_or_else(|| ApiError::bad_request("Display name required".to_string()))?;
+
+    state.services.device_storage.update_device_display_name(&device_id, &user_id, display_name).await
+        .map_err(|e| ApiError::internal(format!("Failed to update device: {}", e)))?;
+
+    Ok(Json(json!({})))
+}
+
+async fn delete_device(State(state): State<AppState>, Path(device_id): Path<String>, headers: axum::http::HeaderMap) -> Result<Json<Value>, ApiError> {
+    let token = extract_token(&headers)?;
+    let (user_id, _, _) = state.services.auth_service.validate_token(&token).await?;
+
+    state.services.device_storage.delete_device(&device_id, &user_id).await
+        .map_err(|e| ApiError::internal(format!("Failed to delete device: {}", e)))?;
+
+    Ok(Json(json!({})))
+}
+
+async fn get_presence(State(state): State<AppState>, Path(user_id): Path<String>) -> Result<Json<Value>, ApiError> {
+    state.services.presence_storage.get_presence(&user_id).await
+        .map(|v| Json(v.unwrap_or(json!({}))))
+        .map_err(|e| ApiError::internal(format!("Failed to get presence: {}", e)))
+}
+
+async fn set_presence(State(state): State<AppState>, Path(user_id): Path<String>, Json(body): Json<Value>, headers: axum::http::HeaderMap) -> Result<Json<Value>, ApiError> {
+    let token = extract_token(&headers)?;
+    let (_, _, _) = state.services.auth_service.validate_token(&token).await?;
+
+    let presence = body.get("presence").and_then(|v| v.as_str()).ok_or_else(|| ApiError::bad_request("Presence required".to_string()))?;
+    let status_msg = body.get("status_msg").and_then(|v| v.as_str());
+
+    state.services.presence_storage.set_presence(&user_id, presence, status_msg).await
+        .map_err(|e| ApiError::internal(format!("Failed to set presence: {}", e)))?;
+
+    Ok(Json(json!({})))
+}
+
+async fn get_room_state(State(state): State<AppState>, Path(room_id): Path<String>) -> Result<Json<Value>, ApiError> {
+    let events = state.services.event_storage.get_state_events(&room_id).await
+        .map_err(|e| ApiError::internal(format!("Failed to get state: {}", e)))?;
+
+    let state_events: Vec<Value> = events.iter()
+        .map(|e| json!({
+            "type": e.event_type,
+            "event_id": e.event_id,
+            "sender": e.user_id,
+            "content": serde_json::from_str(&e.content).unwrap_or(json!({})),
+            "state_key": e.state_key
+        }))
+        .collect();
+
+    Ok(Json(json!({ "state": state_events })))
+}
+
+async fn get_state_by_type(State(state): State<AppState>, Path((room_id, event_type)): Path<(String, String)>, headers: axum::http::HeaderMap) -> Result<Json<Value>, ApiError> {
+    let events = state.services.event_storage.get_state_events_by_type(&room_id, &event_type).await
+        .map_err(|e| ApiError::internal(format!("Failed to get state: {}", e)))?;
+
+    let state_events: Vec<Value> = events.iter()
+        .map(|e| json!({
+            "type": e.event_type,
+            "event_id": e.event_id,
+            "sender": e.user_id,
+            "content": serde_json::from_str(&e.content).unwrap_or(json!({})),
+            "state_key": e.state_key
+        }))
+        .collect();
+
+    Ok(Json(json!({ "events": state_events })))
+}
+
+async fn get_state_event(State(state): State<AppState>, Path((room_id, event_type, state_key)): Path<(String, String, String)>) -> Result<Json<Value>, ApiError> {
+    let events = state.services.event_storage.get_state_events_by_type(&room_id, &event_type).await
+        .map_err(|e| ApiError::internal(format!("Failed to get state: {}", e)))?;
+
+    let event = events.iter().find(|e| e.state_key == Some(state_key.clone()))
+        .ok_or_else(|| ApiError::not_found("State event not found".to_string()))?;
+
+    Ok(Json(json!({
+        "type": event.event_type,
+        "event_id": event.event_id,
+        "sender": event.user_id,
+        "content": serde_json::from_str(&event.content).unwrap_or(json!({})),
+        "state_key": event.state_key
+    })))
+}
+
+async fn redact_event(State(state): State<AppState>, Path((room_id, event_id)): Path<(String, String)>, Json(body): Json<Value>, headers: axum::http::HeaderMap) -> Result<Json<Value>, ApiError> {
+    let token = extract_token(&headers)?;
+    let (user_id, _, _) = state.services.auth_service.validate_token(&token).await?;
+
+    let reason = body.get("reason").and_then(|v| v.as_str());
+
+    let new_event_id = crate::common::crypto::generate_event_id(&state.services.server_name);
+    let now = chrono::Utc::now().timestamp_millis();
+
+    let content = json!({
+        "reason": reason
+    });
+
+    state.services.event_storage.create_event(
+        &new_event_id, &room_id, &user_id, "m.room.redaction",
+        &serde_json::to_string(&content).unwrap(),
+        None, now, now, 0, &state.services.server_name, &state.services.server_name
+    ).await.map_err(|e| ApiError::internal(format!("Failed to redact event: {}", e)))?;
+
+    Ok(Json(json!({
+        "event_id": new_event_id
+    })))
+}
+
+async fn kick_user(State(state): State<AppState>, Path(room_id): Path<String>, Json(body): Json<Value>, headers: axum::http::HeaderMap) -> Result<Json<Value>, ApiError> {
+    let token = extract_token(&headers)?;
+    let (user_id, _, _) = state.services.auth_service.validate_token(&token).await?;
+    let target = body.get("user_id").and_then(|v| v.as_str()).ok_or_else(|| ApiError::bad_request("User ID required".to_string()))?;
+    let reason = body.get("reason").and_then(|v| v.as_str());
+
+    let event_id = crate::common::crypto::generate_event_id(&state.services.server_name);
+    let content = json!({
+        "membership": "leave",
+        "reason": reason.unwrap_or("")
+    });
+
+    state.services.member_storage.remove_member(&room_id, target).await
+        .map_err(|e| ApiError::internal(format!("Failed to kick user: {}", e)))?;
+
+    state.services.event_storage.create_event(
+        &event_id, &room_id, &user_id, "m.room.member",
+        &serde_json::to_string(&content).unwrap(),
+        Some(target), chrono::Utc::now().timestamp_millis(), chrono::Utc::now().timestamp_millis(), 
+        0, &state.services.server_name, &state.services.server_name
+    ).await.ok();
+
+    Ok(Json(json!({})))
+}
+
+async fn ban_user(State(state): State<AppState>, Path(room_id): Path<String>, Json(body): Json<Value>, headers: axum::http::HeaderMap) -> Result<Json<Value>, ApiError> {
+    let token = extract_token(&headers)?;
+    let (user_id, _, _) = state.services.auth_service.validate_token(&token).await?;
+    let target = body.get("user_id").and_then(|v| v.as_str()).ok_or_else(|| ApiError::bad_request("User ID required".to_string()))?;
+    let reason = body.get("reason").and_then(|v| v.as_str());
+
+    let event_id = crate::common::crypto::generate_event_id(&state.services.server_name);
+    let content = json!({
+        "membership": "ban",
+        "reason": reason.unwrap_or("")
+    });
+
+    state.services.member_storage.add_member(&room_id, &target, &user_id, "ban", &event_id, "m.room.member", None, None).await
+        .map_err(|e| ApiError::internal(format!("Failed to ban user: {}", e)))?;
+
+    Ok(Json(json!({})))
+}
+
+async fn unban_user(State(state): State<AppState>, Path(room_id): Path<String>, Json(body): Json<Value>, headers: axum::http::HeaderMap) -> Result<Json<Value>, ApiError> {
+    let token = extract_token(&headers)?;
+    let (user_id, _, _) = state.services.auth_service.validate_token(&token).await?;
+    let target = body.get("user_id").and_then(|v| v.as_str()).ok_or_else(|| ApiError::bad_request("User ID required".to_string()))?;
+
+    state.services.member_storage.remove_member(&room_id, target).await
+        .map_err(|e| ApiError::internal(format!("Failed to unban user: {}", e)))?;
+
+    Ok(Json(json!({})))
+}
+
+fn extract_token(headers: &axum::http::HeaderMap) -> Result<String, ApiError> {
+    headers.get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.strip_prefix("Bearer "))
+        .map(|s| s.to_string())
+        .ok_or_else(|| ApiError::unauthorized("Missing or invalid authorization header".to_string()))
+}
