@@ -107,6 +107,10 @@ media:
       height: 600
       method: scale
 
+search:
+  elasticsearch_url: "http://localhost:9200"
+  enabled: false
+
 security:
   secret: "7206758265647f2fff7edb25bd4a3c323b05c888a6eff76bc8d3c30793ad293b"
   expiry_time: 3600
