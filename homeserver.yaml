@@ -21,7 +21,7 @@ caches:
   event_cache_size: 10000 # 内存中保留的事件数量，减少 DB 查询延迟
 
 database:
-  host: "localhost"
+  host: "172.18.0.4"
   port: 5432
   username: "synapse"
   password: "synapse"
@@ -32,7 +32,7 @@ database:
   connection_timeout: 30
 
 redis:
-  host: "localhost"
+  host: "172.18.0.5"
   port: 6379
   key_prefix: "synapse:"
   pool_size: 20
@@ -78,13 +78,14 @@ logging:
 
 federation:
   enabled: true
-  allow_ingress: false
+  allow_ingress: true
   server_name: "matrix.cjystx.top"
   federation_port: 8448
   connection_pool_size: 10
   max_transaction_payload: 10485760
   send_queue_limit: 50 # 限制发送队列，防止单个节点慢导致内存积压
   resolve_timeout: 15s # DNS 解析与连接超时，快速失败避免阻塞
+  signing_key: "gtjAoCT5GSIk9DhLAq46MEIy7RdmZirxZpj0iDknE7I="
   ca_file: null
   client_ca_file: null
 
