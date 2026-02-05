@@ -117,3 +117,37 @@ security:
   expiry_time: 3600
   refresh_token_expiry: 604800
   bcrypt_rounds: 12
+
+# SMTP邮件服务配置 (用于邮箱验证)
+smtp:
+  enabled: false  # 生产环境设为true启用
+  host: "smtp.example.com"
+  port: 587
+  username: "noreply@example.com"
+  password: "your_smtp_password"
+  from: "Matrix <noreply@example.com>"
+  tls: true  # 使用STARTTLS
+  # 邮件模板配置
+  templates:
+    verification_subject: "Verify your email address"
+    verification_body: |
+      Hello,
+
+      Your verification code is: {{code}}
+
+      This code will expire in {{expiry}} minutes.
+
+      If you did not request this email, please ignore it.
+
+      Best regards,
+      Matrix Team
+    verification_html_body: |
+      <html>
+      <body>
+        <h2>Verify your email address</h2>
+        <p>Your verification code is:</p>
+        <p style="font-size: 24px; font-weight: bold;">{{code}}</p>
+        <p>This code will expire in {{expiry}} minutes.</p>
+        <p>If you did not request this email, please ignore it.</p>
+      </body>
+      </html>
