@@ -1,153 +1,203 @@
-server:
-  name: "matrix.cjystx.top" # 生产环境域名
-  host: "0.0.0.0"
-  port: 8008
-  registration_shared_secret: "test_shared_secret"
-  admin_contact: "admin@cjystx.top"
-  max_upload_size: 104857600 # 100MB, 支持大文件上传
-  max_image_resolution: 33554432 # 32MP, 限制图片分辨率防止内存溢出
-  enable_registration: true
-  enable_registration_captcha: false
-  background_tasks_interval: 60
-  expire_access_token: true
-  expire_access_token_lifetime: 3600
-  refresh_token_lifetime: 604800
-  refresh_token_sliding_window_size: 1000
-  session_duration: 86400
+#官方文档
+# vim:ft=yaml
 
-# 缓存优化 (Python Synapse 兼容参数)
-caches:
-  cache_factors: 2.0 # 缩放所有缓存的大小，Rust 版内存优势可设为 2.0
-  event_cache_size: 10000 # 内存中保留的事件数量，减少 DB 查询延迟
+## TLS ##
 
+{% if not SYNAPSE_NO_TLS %}
+
+tls_certificate_path: "/data/{{ SYNAPSE_SERVER_NAME }}.tls.crt"
+tls_private_key_path: "/data/{{ SYNAPSE_SERVER_NAME }}.tls.key"
+
+{% endif %}
+
+## Server ##
+
+server_name: "{{ SYNAPSE_SERVER_NAME }}"
+pid_file: /homeserver.pid
+web_client: False
+soft_file_limit: 0
+log_config: "{{ SYNAPSE_LOG_CONFIG }}"
+
+## Ports ##
+
+listeners:
+  {% if not SYNAPSE_NO_TLS %}
+  -
+    port: 8448
+    bind_addresses: ['::']
+    type: http
+    tls: true
+    x_forwarded: false
+    resources:
+      - names: [client]
+        compress: true
+      - names: [federation]  # Federation APIs
+        compress: false
+  {% endif %}
+
+  # Allow configuring in case we want to reverse proxy 8008
+  # using another process in the same container
+{% if SYNAPSE_USE_UNIX_SOCKET %}
+  # Unix sockets don't care about TLS or IP addresses or ports
+  - path: '/run/main_public.sock'
+    type: http
+{% else %}
+  - port: {{ SYNAPSE_HTTP_PORT or 8008 }}
+    tls: false
+    bind_addresses: ['::']
+    type: http
+    x_forwarded: false
+{% endif %}
+    resources:
+      - names: [client]
+        compress: true
+      - names: [federation]
+        compress: false
+
+{% if SYNAPSE_ENABLE_METRICS %}
+  - type: metrics
+    # The main process always uses the same port 19090
+    #
+    # Prometheus does not support Unix sockets so we don't bother with
+    # `SYNAPSE_USE_UNIX_SOCKET`, https://github.com/prometheus/prometheus/issues/12024
+    port: 19090
+{% endif %}
+
+## Database ##
+
+{% if POSTGRES_PASSWORD %}
 database:
-  host: "172.18.0.4"
-  port: 5432
-  username: "synapse"
-  password: "synapse"
-  name: "synapse_test"
-  pool_size: 20
-  max_size: 100
-  min_idle: 5
-  connection_timeout: 30
+  name: "psycopg2"
+  args:
+    user: "{{ POSTGRES_USER or "synapse" }}"
+    password: "{{ POSTGRES_PASSWORD }}"
+    database: "{{ POSTGRES_DB or "synapse" }}"
+{% if not SYNAPSE_USE_UNIX_SOCKET %}
+{# Synapse will use a default unix socket for Postgres when host/port is not specified (behavior from `psycopg2`). #}
+    host: "{{ POSTGRES_HOST or "db" }}"
+    port: "{{ POSTGRES_PORT or "5432" }}"
+{% endif %}
+    cp_min: {{ POSTGRES_CP_MIN or 5 }}
+    cp_max: {{ POSTGRES_CP_MAX or 10 }}
+{% else %}
+database:
+  name: "sqlite3"
+  args:
+    database: "/data/homeserver.db"
+{% endif %}
 
-redis:
-  host: "172.18.0.5"
-  port: 6379
-  key_prefix: "synapse:"
-  pool_size: 20
-  enabled: true
+## Performance ##
 
-rate_limit:
-  enabled: true
-  default:
-    per_second: 10
-    burst_size: 20
-  endpoints:
-    - path: "/_matrix/client/r0/login"
-      match_type: exact
-      rule:
-        per_second: 1
-        burst_size: 5
-    - path: "/_matrix/client/r0/register"
-      match_type: exact
-      rule:
-        per_second: 1
-        burst_size: 3
-    - path: "/_matrix/media/"
-      match_type: prefix
-      rule:
-        per_second: 2
-        burst_size: 10
-  ip_header_priority:
-    - "x-forwarded-for"
-    - "x-real-ip"
-    - "forwarded"
-  include_headers: true
-  exempt_paths:
-    - "/"
-    - "/_matrix/client/versions"
-  exempt_path_prefixes: []
-  endpoint_aliases: {}
+event_cache_size: "{{ SYNAPSE_EVENT_CACHE_SIZE or "10K" }}"
 
-logging:
-  level: "info"
-  format: "json" # 改为 JSON 格式以便 Prometheus/Grafana 解析
-  log_file: null
-  log_dir: null
+## Ratelimiting ##
 
-federation:
-  enabled: true
-  allow_ingress: true
-  server_name: "matrix.cjystx.top"
-  federation_port: 8448
-  connection_pool_size: 10
-  max_transaction_payload: 10485760
-  send_queue_limit: 50 # 限制发送队列，防止单个节点慢导致内存积压
-  resolve_timeout: 15s # DNS 解析与连接超时，快速失败避免阻塞
-  signing_key: "gtjAoCT5GSIk9DhLAq46MEIy7RdmZirxZpj0iDknE7I="
-  ca_file: null
-  client_ca_file: null
+rc_messages_per_second: 0.2
+rc_message_burst_count: 10.0
+federation_rc_window_size: 1000
+federation_rc_sleep_limit: 10
+federation_rc_sleep_delay: 500
+federation_rc_reject_limit: 50
+federation_rc_concurrent: 3
 
-media:
-  max_image_pixels: 33554432 # 32MP, 限制图片分辨率防止内存溢出
-  thumbnail_sizes:
-    - width: 32
-      height: 32
-      method: crop
-    - width: 96
-      height: 96
-      method: crop
-    - width: 320
-      height: 240
-      method: scale
-    - width: 640
-      height: 480
-      method: scale
-    - width: 800
-      height: 600
-      method: scale
+## Files ##
 
-search:
-  elasticsearch_url: "http://localhost:9200"
-  enabled: false
+media_store_path: "/home/hula/synapse_rust/docker/media"
+max_upload_size: "{{ SYNAPSE_MAX_UPLOAD_SIZE or "50M" }}"
+max_image_pixels: "32M"
+dynamic_thumbnails: false
 
-security:
-  secret: "7206758265647f2fff7edb25bd4a3c323b05c888a6eff76bc8d3c30793ad293b"
-  expiry_time: 3600
-  refresh_token_expiry: 604800
-  bcrypt_rounds: 12
+# List of thumbnail to precalculate when an image is uploaded.
+thumbnail_sizes:
+- width: 32
+  height: 32
+  method: crop
+- width: 96
+  height: 96
+  method: crop
+- width: 320
+  height: 240
+  method: scale
+- width: 640
+  height: 480
+  method: scale
+- width: 800
+  height: 600
+  method: scale
 
-# SMTP邮件服务配置 (用于邮箱验证)
-smtp:
-  enabled: false  # 生产环境设为true启用
-  host: "smtp.example.com"
-  port: 587
-  username: "noreply@example.com"
-  password: "your_smtp_password"
-  from: "Matrix <noreply@example.com>"
-  tls: true  # 使用STARTTLS
-  # 邮件模板配置
-  templates:
-    verification_subject: "Verify your email address"
-    verification_body: |
-      Hello,
+url_preview_enabled: False
+max_spider_size: "10M"
 
-      Your verification code is: {{code}}
+## Captcha ##
 
-      This code will expire in {{expiry}} minutes.
+{% if SYNAPSE_RECAPTCHA_PUBLIC_KEY %}
+recaptcha_public_key: "{{ SYNAPSE_RECAPTCHA_PUBLIC_KEY }}"
+recaptcha_private_key: "{{ SYNAPSE_RECAPTCHA_PRIVATE_KEY }}"
+enable_registration_captcha: True
+recaptcha_siteverify_api: "https://www.google.com/recaptcha/api/siteverify"
+{% else %}
+recaptcha_public_key: "YOUR_PUBLIC_KEY"
+recaptcha_private_key: "YOUR_PRIVATE_KEY"
+enable_registration_captcha: False
+recaptcha_siteverify_api: "https://www.google.com/recaptcha/api/siteverify"
+{% endif %}
 
-      If you did not request this email, please ignore it.
+## Turn ##
 
-      Best regards,
-      Matrix Team
-    verification_html_body: |
-      <html>
-      <body>
-        <h2>Verify your email address</h2>
-        <p>Your verification code is:</p>
-        <p style="font-size: 24px; font-weight: bold;">{{code}}</p>
-        <p>This code will expire in {{expiry}} minutes.</p>
-        <p>If you did not request this email, please ignore it.</p>
-      </body>
-      </html>
+{% if SYNAPSE_TURN_URIS %}
+turn_uris:
+{% for uri in SYNAPSE_TURN_URIS.split(',') %}    - "{{ uri }}"
+{% endfor %}
+turn_shared_secret: "{{ SYNAPSE_TURN_SECRET }}"
+turn_user_lifetime: "1h"
+turn_allow_guests: True
+{% else %}
+turn_uris: []
+turn_shared_secret: "YOUR_SHARED_SECRET"
+turn_user_lifetime: "1h"
+turn_allow_guests: True
+{% endif %}
+
+## Registration ##
+
+enable_registration: {{ "True" if SYNAPSE_ENABLE_REGISTRATION else "False" }}
+registration_shared_secret: "{{ SYNAPSE_REGISTRATION_SHARED_SECRET }}"
+bcrypt_rounds: 12
+allow_guest_access: {{ "True" if SYNAPSE_ALLOW_GUEST else "False" }}
+enable_group_creation: true
+
+
+## Metrics ###
+
+{% if SYNAPSE_REPORT_STATS.lower() == "yes" %}
+enable_metrics: True
+report_stats: True
+{% else %}
+enable_metrics: False
+report_stats: False
+{% endif %}
+
+## API Configuration ##
+
+{% if SYNAPSE_APPSERVICES %}
+app_service_config_files:
+{% for appservice in SYNAPSE_APPSERVICES %}    - "{{ appservice }}"
+{% endfor %}
+{% endif %}
+
+macaroon_secret_key: "{{ SYNAPSE_MACAROON_SECRET_KEY }}"
+
+## Signing Keys ##
+
+signing_key_path: "/data/{{ SYNAPSE_SERVER_NAME }}.signing.key"
+old_signing_keys: {}
+key_refresh_interval: "1d" # 1 Day.
+
+# The trusted servers to download signing keys from.
+trusted_key_servers:
+  - server_name: matrix.org
+    verify_keys:
+      "ed25519:auto": "Noi6WqcDj0QmPxCNQqgezwTlBKrfqehY1u2FyWP9uYw"
+
+password_config:
+   enabled: true
