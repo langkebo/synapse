@@ -63,10 +63,9 @@ impl DeviceKeyStorage {
             r#"
             INSERT INTO device_keys (user_id, device_id, display_name, algorithm, key_id, public_key, signatures, created_at, updated_at, ts_updated_ms, key_json, ts_added_ms, ts_last_accessed)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-            ON CONFLICT (user_id, device_id) DO UPDATE
+            ON CONFLICT (user_id, device_id, key_id) DO UPDATE
             SET display_name = EXCLUDED.display_name,
                 algorithm = EXCLUDED.algorithm,
-                key_id = EXCLUDED.key_id,
                 public_key = EXCLUDED.public_key,
                 signatures = EXCLUDED.signatures,
                 updated_at = EXCLUDED.updated_at,

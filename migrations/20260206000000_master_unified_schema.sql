@@ -957,12 +957,13 @@ CREATE INDEX IF NOT EXISTS idx_room_key_distribution_room ON room_key_distributi
 -- 邮箱验证令牌表
 CREATE TABLE IF NOT EXISTS email_verification_tokens (
     id BIGSERIAL PRIMARY KEY,
-    user_id VARCHAR(255) NOT NULL,
+    user_id VARCHAR(255),
     email VARCHAR(255) NOT NULL,
     token VARCHAR(255) NOT NULL UNIQUE,
     expires_ts BIGINT NOT NULL,
     used BOOLEAN DEFAULT FALSE,
     created_ts BIGINT NOT NULL,
+    session_data JSONB,
     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 
@@ -970,6 +971,7 @@ CREATE TABLE IF NOT EXISTS email_verification_tokens (
 CREATE INDEX IF NOT EXISTS idx_email_verification_user ON email_verification_tokens(user_id);
 CREATE INDEX IF NOT EXISTS idx_email_verification_token ON email_verification_tokens(token);
 CREATE INDEX IF NOT EXISTS idx_email_verification_expires ON email_verification_tokens(expires_ts);
+CREATE INDEX IF NOT EXISTS idx_email_verification_session_data ON email_verification_tokens(session_data) WHERE session_data IS NOT NULL;
 
 -- 数据库元数据表
 CREATE TABLE IF NOT EXISTS db_metadata (

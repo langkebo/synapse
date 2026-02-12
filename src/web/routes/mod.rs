@@ -1,5 +1,6 @@
 pub mod admin;
 pub mod e2ee_routes;
+pub mod external_services;
 pub mod federation;
 pub mod friend_room;
 pub mod key_backup;
@@ -9,6 +10,7 @@ pub mod voip;
 
 pub use admin::create_admin_router;
 pub use e2ee_routes::create_e2ee_router;
+pub use external_services::create_external_services_router;
 pub use federation::create_federation_router;
 pub use friend_room::create_friend_router;
 pub use key_backup::create_key_backup_router;
@@ -187,6 +189,14 @@ pub fn create_router(state: AppState) -> Router {
         .route("/health", get(health_check))
         .route("/_matrix/client/versions", get(get_client_versions))
         .route("/_matrix/client/r0/version", get(get_server_version))
+        .route(
+            "/.well-known/matrix/server",
+            get(get_well_known_server),
+        )
+        .route(
+            "/.well-known/matrix/client",
+            get(get_well_known_client),
+        )
         .merge(create_auth_router())
         .merge(create_account_router())
         .merge(create_directory_router())
@@ -201,6 +211,7 @@ pub fn create_router(state: AppState) -> Router {
         .merge(create_admin_router(state.clone()))
         .merge(create_federation_router(state.clone()))
         .merge(create_friend_router(state.clone()))
+        .merge(create_external_services_router())
         .route("/_matrix/client/v3/voip/turnServer", get(get_turn_server))
         .route("/_matrix/client/v3/voip/config", get(get_voip_config))
         .route("/_matrix/client/v3/voip/turnServer/guest", get(get_turn_credentials_guest))
@@ -253,6 +264,22 @@ fn create_account_router() -> Router<AppState> {
             "/_matrix/client/r0/account/deactivate",
             post(deactivate_account),
         )
+        .route(
+            "/_matrix/client/r0/user/{user_id}/filter",
+            post(create_filter),
+        )
+        .route(
+            "/_matrix/client/r0/user/{user_id}/filter/{filter_id}",
+            get(get_filter),
+        )
+        .route(
+            "/_matrix/client/r0/user/{user_id}/account_data/{type}",
+            put(set_account_data),
+        )
+        .route(
+            "/_matrix/client/r0/user/{user_id}/account_data/{type}",
+            get(get_account_data),
+        )
 }
 
 fn create_directory_router() -> Router<AppState> {
@@ -266,14 +293,14 @@ fn create_directory_router() -> Router<AppState> {
             post(list_user_directory),
         )
         .route(
-            "/_matrix/client/r0/directory/room/alias/{room_alias}",
-            get(get_room_by_alias),
-        )
-        .route(
-            "/_matrix/client/r0/directory/room/{param}",
-            get(get_room)
+            "/_matrix/client/r0/directory/room/{room_alias}",
+            get(get_room_by_alias)
                 .put(set_room_directory)
                 .delete(delete_room_directory),
+        )
+        .route(
+            "/_matrix/client/r0/directory/list/public",
+            get(get_public_rooms),
         )
         .route(
             "/_matrix/client/r0/directory/room/{room_id}/alias",
@@ -281,11 +308,7 @@ fn create_directory_router() -> Router<AppState> {
         )
         .route(
             "/_matrix/client/r0/directory/room/{room_id}/alias/{room_alias}",
-            put(set_room_alias),
-        )
-        .route(
-            "/_matrix/client/r0/directory/room/{room_id}/alias/{room_alias}",
-            delete(delete_room_alias),
+            put(set_room_alias).delete(delete_room_alias),
         )
         .route("/_matrix/client/r0/publicRooms", get(get_public_rooms))
         .route("/_matrix/client/r0/publicRooms", post(create_public_room))
@@ -321,6 +344,14 @@ fn create_room_router() -> Router<AppState> {
         .route("/_matrix/client/r0/rooms/{room_id}/join", post(join_room))
         .route("/_matrix/client/r0/rooms/{room_id}/leave", post(leave_room))
         .route(
+            "/_matrix/client/r0/rooms/{room_id}/forget",
+            post(forget_room),
+        )
+        .route(
+            "/_matrix/client/r0/rooms/{room_id}/summary",
+            get(get_room),
+        )
+        .route(
             "/_matrix/client/r0/rooms/{room_id}/members",
             get(get_room_members),
         )
@@ -329,6 +360,10 @@ fn create_room_router() -> Router<AppState> {
             post(invite_user),
         )
         .route("/_matrix/client/r0/createRoom", post(create_room))
+        .route(
+            "/_matrix/client/r0/join/{room_id_or_alias}",
+            post(join_room_by_id_or_alias),
+        )
         .route(
             "/_matrix/client/r0/user/{user_id}/rooms",
             get(get_user_rooms),
@@ -367,6 +402,26 @@ fn create_room_router() -> Router<AppState> {
         .route(
             "/_matrix/client/r0/rooms/{room_id}/send/{event_type}/{txn_id}",
             put(send_message),
+        )
+        .route(
+            "/_matrix/client/r0/rooms/{room_id}/event/{event_id}",
+            get(get_event),
+        )
+        .route(
+            "/_matrix/client/r0/rooms/{room_id}/context/{event_id}",
+            get(get_event_context),
+        )
+        .route(
+            "/_matrix/client/r0/rooms/{room_id}/upgrade",
+            post(upgrade_room),
+        )
+        .route(
+            "/_matrix/client/r0/rooms/{room_id}/initialSync",
+            get(room_initial_sync),
+        )
+        .route(
+            "/_matrix/client/r0/rooms/{room_id}/timestamp_to_event",
+            get(timestamp_to_event),
         )
 }
 
@@ -417,6 +472,24 @@ async fn health_check(State(state): State<AppState>) -> Json<Value> {
         serde_json::to_value(status)
             .unwrap_or_else(|_| json!({"status": "unhealthy", "error": "serialization error"})),
     )
+}
+
+async fn get_well_known_server(State(state): State<AppState>) -> Json<Value> {
+    let server_name = &state.services.config.server.name;
+    Json(json!({
+        "m.server": format!("{}:8448", server_name),
+    }))
+}
+
+async fn get_well_known_client(State(state): State<AppState>) -> Json<Value> {
+    let server_name = &state.services.config.server.name;
+    let base_url = state.services.config.server.public_baseurl.clone()
+        .unwrap_or_else(|| format!("https://{}", server_name));
+    Json(json!({
+        "m.homeserver": {
+            "base_url": base_url,
+        },
+    }))
 }
 
 async fn register(
@@ -987,6 +1060,86 @@ async fn deactivate_account(
     Ok(Json(json!({})))
 }
 
+async fn create_filter(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(user_id): Path<String>,
+    Json(filter): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    if user_id != auth_user.user_id && !auth_user.is_admin {
+        return Err(ApiError::forbidden("Cannot create filter for another user".to_string()));
+    }
+
+    let filter_id = state
+        .services
+        .user_storage
+        .create_filter(&user_id, &filter)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to create filter: {}", e)))?;
+
+    Ok(Json(json!({ "filter_id": filter_id })))
+}
+
+async fn get_filter(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path((user_id, filter_id)): Path<(String, String)>,
+) -> Result<Json<Value>, ApiError> {
+    if user_id != auth_user.user_id && !auth_user.is_admin {
+        return Err(ApiError::forbidden("Cannot access filter for another user".to_string()));
+    }
+
+    let filter = state
+        .services
+        .user_storage
+        .get_filter(&user_id, &filter_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get filter: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Filter not found".to_string()))?;
+
+    Ok(Json(filter))
+}
+
+async fn set_account_data(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path((user_id, data_type)): Path<(String, String)>,
+    Json(data): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    if user_id != auth_user.user_id && !auth_user.is_admin {
+        return Err(ApiError::forbidden("Cannot set account data for another user".to_string()));
+    }
+
+    state
+        .services
+        .user_storage
+        .set_account_data(&user_id, &data_type, &data)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to set account data: {}", e)))?;
+
+    Ok(Json(json!({})))
+}
+
+async fn get_account_data(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path((user_id, data_type)): Path<(String, String)>,
+) -> Result<Json<Value>, ApiError> {
+    if user_id != auth_user.user_id && !auth_user.is_admin {
+        return Err(ApiError::forbidden("Cannot access account data for another user".to_string()));
+    }
+
+    let data = state
+        .services
+        .user_storage
+        .get_account_data(&user_id, &data_type)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get account data: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Account data not found".to_string()))?;
+
+    Ok(Json(data))
+}
+
 async fn search_user_directory(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1228,6 +1381,308 @@ async fn send_message(
     ))
 }
 
+async fn get_event(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path((room_id, event_id)): Path<(String, String)>,
+) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+
+    let is_member = state
+        .services
+        .member_storage
+        .is_member(&room_id, &auth_user.user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
+
+    if !is_member && !auth_user.is_admin {
+        return Err(ApiError::forbidden(
+            "You must be a member of this room to view events".to_string(),
+        ));
+    }
+
+    let event = state
+        .services
+        .event_storage
+        .get_event_by_id(&event_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get event: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
+
+    if event.room_id != room_id {
+        return Err(ApiError::not_found("Event not found in this room".to_string()));
+    }
+
+    Ok(Json(json!({
+        "event_id": event.event_id,
+        "room_id": event.room_id,
+        "sender": event.user_id,
+        "type": event.event_type,
+        "content": event.content,
+        "origin_server_ts": event.origin_server_ts,
+        "state_key": event.state_key
+    })))
+}
+
+async fn get_event_context(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path((room_id, event_id)): Path<(String, String)>,
+    Query(params): Query<Value>,
+) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+
+    let is_member = state
+        .services
+        .member_storage
+        .is_member(&room_id, &auth_user.user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
+
+    if !is_member && !auth_user.is_admin {
+        return Err(ApiError::forbidden(
+            "You must be a member of this room to view event context".to_string(),
+        ));
+    }
+
+    let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as i64;
+
+    let event = state
+        .services
+        .event_storage
+        .get_event_by_id(&event_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get event: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
+
+    if event.room_id != room_id {
+        return Err(ApiError::not_found("Event not found in this room".to_string()));
+    }
+
+    let events_before = state
+        .services
+        .event_storage
+        .get_events_before(&room_id, event.origin_server_ts, limit)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get events before: {}", e)))?;
+
+    let events_after = state
+        .services
+        .event_storage
+        .get_events_after(&room_id, event.origin_server_ts, limit)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get events after: {}", e)))?;
+
+    let state_events = state
+        .services
+        .event_storage
+        .get_state_events(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get state: {}", e)))?;
+
+    Ok(Json(json!({
+        "event": {
+            "event_id": event.event_id,
+            "room_id": event.room_id,
+            "sender": event.user_id,
+            "type": event.event_type,
+            "content": event.content,
+            "origin_server_ts": event.origin_server_ts
+        },
+        "events_before": events_before.iter().map(|e| json!({
+            "event_id": e.event_id,
+            "sender": e.user_id,
+            "type": e.event_type,
+            "content": e.content,
+            "origin_server_ts": e.origin_server_ts
+        })).collect::<Vec<_>>(),
+        "events_after": events_after.iter().map(|e| json!({
+            "event_id": e.event_id,
+            "sender": e.user_id,
+            "type": e.event_type,
+            "content": e.content,
+            "origin_server_ts": e.origin_server_ts
+        })).collect::<Vec<_>>(),
+        "state": state_events.iter().map(|e| json!({
+            "event_id": e.event_id,
+            "sender": e.user_id,
+            "type": e.event_type,
+            "content": e.content,
+            "state_key": e.state_key
+        })).collect::<Vec<_>>(),
+        "start": events_before.last().map(|e| e.event_id.clone()).unwrap_or_default(),
+        "end": events_after.last().map(|e| e.event_id.clone()).unwrap_or_default()
+    })))
+}
+
+async fn upgrade_room(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(room_id): Path<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+
+    let is_member = state
+        .services
+        .member_storage
+        .is_member(&room_id, &auth_user.user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
+
+    if !is_member && !auth_user.is_admin {
+        return Err(ApiError::forbidden(
+            "You must be a member of this room to upgrade it".to_string(),
+        ));
+    }
+
+    let new_version = body
+        .get("new_version")
+        .and_then(|v| v.as_str())
+        .unwrap_or("6");
+
+    let new_room_id = state
+        .services
+        .room_service
+        .upgrade_room(&room_id, &auth_user.user_id, new_version)
+        .await?;
+
+    Ok(Json(json!({
+        "replacement_room": new_room_id
+    })))
+}
+
+async fn room_initial_sync(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(room_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+
+    let is_member = state
+        .services
+        .member_storage
+        .is_member(&room_id, &auth_user.user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
+
+    if !is_member && !auth_user.is_admin {
+        return Err(ApiError::forbidden(
+            "You must be a member of this room to sync".to_string(),
+        ));
+    }
+
+    let room = state
+        .services
+        .room_storage
+        .get_room(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get room: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
+
+    let state_events = state
+        .services
+        .event_storage
+        .get_state_events(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get state: {}", e)))?;
+
+    let messages = state
+        .services
+        .event_storage
+        .get_recent_events(&room_id, 10)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get messages: {}", e)))?;
+
+    let members = state
+        .services
+        .member_storage
+        .get_members(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get members: {}", e)))?;
+
+    Ok(Json(json!({
+        "room_id": room_id,
+        "info": {
+            "name": room.name,
+            "topic": room.topic,
+            "avatar_url": room.avatar_url
+        },
+        "state": state_events.iter().map(|e| json!({
+            "event_id": e.event_id,
+            "sender": e.user_id,
+            "type": e.event_type,
+            "content": e.content,
+            "state_key": e.state_key
+        })).collect::<Vec<_>>(),
+        "messages": {
+            "chunk": messages.iter().map(|e| json!({
+                "event_id": e.event_id,
+                "sender": e.user_id,
+                "type": e.event_type,
+                "content": e.content,
+                "origin_server_ts": e.origin_server_ts
+            })).collect::<Vec<_>>()
+        },
+        "members": members
+    })))
+}
+
+async fn timestamp_to_event(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(room_id): Path<String>,
+    Query(params): Query<Value>,
+) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+
+    let is_member = state
+        .services
+        .member_storage
+        .is_member(&room_id, &auth_user.user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
+
+    if !is_member && !auth_user.is_admin {
+        return Err(ApiError::forbidden(
+            "You must be a member of this room to query events".to_string(),
+        ));
+    }
+
+    let ts = params
+        .get("ts")
+        .and_then(|v| v.as_i64())
+        .or_else(|| params.get("ts").and_then(|v| v.as_str()).and_then(|s| s.parse::<i64>().ok()))
+        .ok_or_else(|| ApiError::bad_request("Missing or invalid 'ts' parameter".to_string()))?;
+
+    let dir = params
+        .get("dir")
+        .and_then(|v| v.as_str())
+        .or_else(|| params.get("dir").and_then(|v| v.as_i64()).map(|_| "f"))
+        .unwrap_or("f");
+
+    let event = if dir == "b" {
+        state
+            .services
+            .event_storage
+            .get_event_at_or_before(&room_id, ts)
+            .await
+    } else {
+        state
+            .services
+            .event_storage
+            .get_event_at_or_after(&room_id, ts)
+            .await
+    }
+    .map_err(|e| ApiError::internal(format!("Failed to find event: {}", e)))?
+    .ok_or_else(|| ApiError::not_found("No event found at or near the specified timestamp".to_string()))?;
+
+    Ok(Json(json!({
+        "event_id": event.event_id,
+        "origin_server_ts": event.origin_server_ts
+    })))
+}
+
 async fn join_room(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1259,6 +1714,72 @@ async fn leave_room(
         .leave_room(&room_id, &auth_user.user_id)
         .await?;
     Ok(Json(json!({})))
+}
+
+async fn forget_room(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(room_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+
+    state
+        .services
+        .room_service
+        .forget_room(&room_id, &auth_user.user_id)
+        .await?;
+    Ok(Json(json!({})))
+}
+
+async fn join_room_by_id_or_alias(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(room_id_or_alias): Path<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let token = extract_token_from_headers(&headers)?;
+    let (user_id, _, _) = state.services.auth_service.validate_token(&token).await?;
+
+    let room_id = if room_id_or_alias.starts_with('!') {
+        room_id_or_alias.clone()
+    } else if room_id_or_alias.starts_with('#') {
+        let resolved = state
+            .services
+            .room_service
+            .get_room_by_alias(&room_id_or_alias)
+            .await?
+            .ok_or_else(|| ApiError::not_found("Room alias not found".to_string()))?;
+        resolved
+    } else {
+        let alias = format!("#{}", room_id_or_alias);
+        let resolved = state
+            .services
+            .room_service
+            .get_room_by_alias(&alias)
+            .await?
+            .ok_or_else(|| ApiError::not_found("Room alias not found".to_string()))?;
+        resolved
+    };
+
+    let _server_names = body
+        .get("server_name")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|x| x.as_str().map(String::from))
+                .collect::<Vec<String>>()
+        })
+        .unwrap_or_default();
+
+    state
+        .services
+        .room_service
+        .join_room(&room_id, &user_id)
+        .await?;
+
+    Ok(Json(json!({
+        "room_id": room_id
+    })))
 }
 
 async fn get_room_members(
@@ -1391,13 +1912,9 @@ async fn create_room(
 async fn get_room(
     State(state): State<AppState>,
     _auth_user: AuthenticatedUser,
-    Path(param): Path<String>,
+    Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let room_id = if param.starts_with('!') {
-        param
-    } else {
-        return Err(ApiError::bad_request("Invalid room_id format".to_string()));
-    };
+    validate_room_id(&room_id)?;
     Ok(Json(state.services.room_service.get_room(&room_id).await?))
 }
 
@@ -1468,6 +1985,19 @@ async fn get_room_aliases(
     _auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+
+    let room_exists = state
+        .services
+        .room_service
+        .room_exists(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?;
+
+    if !room_exists {
+        return Err(ApiError::not_found(format!("Room '{}' not found", room_id)));
+    }
+
     let aliases = state
         .services
         .room_service
@@ -1481,6 +2011,27 @@ async fn set_room_alias(
     auth_user: AuthenticatedUser,
     Path((room_id, room_alias)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+
+    if room_alias.is_empty() || room_alias.len() > 255 {
+        return Err(ApiError::bad_request(
+            "Room alias must be between 1 and 255 characters".to_string(),
+        ));
+    }
+
+    let is_member = state
+        .services
+        .member_storage
+        .is_member(&room_id, &auth_user.user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
+
+    if !is_member && !auth_user.is_admin {
+        return Err(ApiError::forbidden(
+            "You must be a member of the room to set an alias".to_string(),
+        ));
+    }
+
     state
         .services
         .room_service
@@ -1491,9 +2042,32 @@ async fn set_room_alias(
 
 async fn delete_room_alias(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
-    Path((room_id, _room_alias)): Path<(String, String)>,
+    auth_user: AuthenticatedUser,
+    Path((room_id, room_alias)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+
+    let alias_creator = state
+        .services
+        .room_storage
+        .get_alias_creator(&room_alias)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get alias creator: {}", e)))?;
+
+    let is_creator = alias_creator == Some(auth_user.user_id.clone());
+    let is_room_creator = state
+        .services
+        .room_service
+        .is_room_creator(&room_id, &auth_user.user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check room creator: {}", e)))?;
+
+    if !is_creator && !is_room_creator && !auth_user.is_admin {
+        return Err(ApiError::forbidden(
+            "Only the alias creator, room creator, or admin can delete the alias".to_string(),
+        ));
+    }
+
     state
         .services
         .room_service
@@ -1504,13 +2078,18 @@ async fn delete_room_alias(
 
 async fn get_room_by_alias(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
     Path(room_alias): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    let alias = if room_alias.starts_with('#') {
+        room_alias
+    } else {
+        format!("#{}", room_alias)
+    };
+
     let room_id = state
         .services
         .room_service
-        .get_room_by_alias(&room_alias)
+        .get_room_by_alias(&alias)
         .await?;
     match room_id {
         Some(rid) => Ok(Json(json!({ "room_id": rid }))),
@@ -1520,7 +2099,7 @@ async fn get_room_by_alias(
 
 async fn get_public_rooms(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _headers: HeaderMap,
     Query(params): Query<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(10);
@@ -1808,9 +2387,23 @@ async fn set_typing(
 
 async fn get_room_state(
     State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
+
+    let is_member = state
+        .services
+        .member_storage
+        .is_member(&room_id, &auth_user.user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
+
+    if !is_member && !auth_user.is_admin {
+        return Err(ApiError::forbidden(
+            "You must be a member of this room to view its state".to_string(),
+        ));
+    }
 
     let room_exists = state
         .services
@@ -1888,21 +2481,30 @@ async fn get_state_by_type(
 
 async fn get_state_event(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
     Path((room_id, event_type, state_key)): Path<(String, String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    let events = state
+    let is_member = state
+        .services
+        .member_storage
+        .is_member(&room_id, &auth_user.user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
+
+    if !is_member && !auth_user.is_admin {
+        return Err(ApiError::forbidden(
+            "You must be a member of this room to view its state".to_string(),
+        ));
+    }
+
+    let event = state
         .services
         .event_storage
-        .get_state_events_by_type(&room_id, &event_type)
+        .get_state_event(&room_id, &event_type, &state_key)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get state: {}", e)))?;
-
-    let event = events
-        .iter()
-        .find(|e| e.state_key == Some(state_key.clone()))
+        .map_err(|e| ApiError::internal(format!("Failed to get state: {}", e)))?
         .ok_or_else(|| ApiError::not_found("State event not found".to_string()))?;
 
     Ok(Json(json!({
@@ -1922,7 +2524,18 @@ async fn send_state_event(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    let content = body;
+    let is_member = state
+        .services
+        .member_storage
+        .is_member(&room_id, &auth_user.user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
+
+    if !is_member && !auth_user.is_admin {
+        return Err(ApiError::forbidden(
+            "You must be a member of this room to send state events".to_string(),
+        ));
+    }
 
     let new_event_id = crate::common::crypto::generate_event_id(&state.services.server_name);
     let now = chrono::Utc::now().timestamp_millis();
@@ -1935,9 +2548,9 @@ async fn send_state_event(
                 event_id: new_event_id.clone(),
                 room_id: room_id.clone(),
                 user_id: auth_user.user_id.clone(),
-                event_type: format!("m.room.{}", event_type),
-                content,
-                state_key: Some(auth_user.user_id),
+                event_type: event_type.clone(),
+                content: body,
+                state_key: Some(auth_user.user_id.clone()),
                 origin_server_ts: now,
             },
             None,
@@ -1960,6 +2573,19 @@ async fn put_state_event(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
+    let is_member = state
+        .services
+        .member_storage
+        .is_member(&room_id, &auth_user.user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
+
+    if !is_member && !auth_user.is_admin {
+        return Err(ApiError::forbidden(
+            "You must be a member of this room to send state events".to_string(),
+        ));
+    }
+
     let new_event_id = crate::common::crypto::generate_event_id(&state.services.server_name);
     let now = chrono::Utc::now().timestamp_millis();
 
@@ -1971,7 +2597,7 @@ async fn put_state_event(
                 event_id: new_event_id.clone(),
                 room_id: room_id.clone(),
                 user_id: auth_user.user_id.clone(),
-                event_type: format!("m.room.{}", event_type),
+                event_type: event_type.clone(),
                 content: body,
                 state_key: Some(state_key),
                 origin_server_ts: now,

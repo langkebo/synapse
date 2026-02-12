@@ -37,26 +37,6 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
         }
     };
 
-    sqlx::query("DROP TABLE IF EXISTS federation_signing_keys CASCADE")
-        .execute(&pool)
-        .await
-        .ok();
-
-    sqlx::query(r#"
-        CREATE TABLE federation_signing_keys (
-            server_name VARCHAR(255) NOT NULL,
-            key_id VARCHAR(255) NOT NULL,
-            secret_key TEXT NOT NULL,
-            public_key TEXT NOT NULL,
-            created_at BIGINT NOT NULL,
-            expires_at BIGINT NOT NULL,
-            key_json JSONB,
-            ts_added_ms BIGINT,
-            ts_valid_until_ms BIGINT,
-            PRIMARY KEY (server_name, key_id)
-        )
-    "#).execute(&pool).await.expect("Failed to create federation_signing_keys table");
-    
     Some(pool)
 }
 

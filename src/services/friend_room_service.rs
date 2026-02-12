@@ -215,6 +215,84 @@ impl FriendRoomService {
             .map_err(|e| ApiError::database(format!("Database error: {}", e)))
     }
 
+    /// 获取黑名单列表 (status = "blocked" 的好友)
+    pub async fn get_blocked_friends(&self, user_id: &str) -> ApiResult<Vec<serde_json::Value>> {
+        let friends = self.get_friends(user_id).await?;
+        let blocked: Vec<serde_json::Value> = friends
+            .into_iter()
+            .filter(|f| f.get("status").and_then(|s| s.as_str()) == Some("blocked"))
+            .collect();
+        Ok(blocked)
+    }
+
+    /// 拉黑用户 (将好友状态设为 blocked)
+    pub async fn block_friend(&self, user_id: &str, friend_id: &str) -> ApiResult<()> {
+        let friend_room = self.create_friend_list_room(user_id).await?;
+        
+        let mut content = self
+            .friend_storage
+            .get_friend_list_content(&friend_room)
+            .await
+            .map_err(|e| ApiError::database(format!("Database error: {}", e)))?
+            .unwrap_or_else(|| json!({ "friends": [] }));
+
+        let found = if let Some(friends) = content.get_mut("friends").and_then(|f| f.as_array_mut()) {
+            let mut found = false;
+            for friend in friends.iter_mut() {
+                if friend.get("user_id").and_then(|u| u.as_str()) == Some(friend_id) {
+                    friend["status"] = json!("blocked");
+                    friend["blocked_at"] = json!(chrono::Utc::now().timestamp_millis());
+                    found = true;
+                    break;
+                }
+            }
+            found
+        } else {
+            false
+        };
+
+        if !found {
+            if let Some(friends) = content.get_mut("friends").and_then(|f| f.as_array_mut()) {
+                friends.push(json!({
+                    "user_id": friend_id,
+                    "status": "blocked",
+                    "blocked_at": chrono::Utc::now().timestamp_millis(),
+                    "added_at": chrono::Utc::now().timestamp_millis()
+                }));
+            }
+        }
+
+        self.send_state_event(&friend_room, user_id, "m.friends.list", "", content).await?;
+
+        Ok(())
+    }
+
+    /// 解除拉黑用户 (将好友状态恢复为 normal)
+    pub async fn unblock_friend(&self, user_id: &str, friend_id: &str) -> ApiResult<()> {
+        let friend_room = self.create_friend_list_room(user_id).await?;
+        
+        let mut content = self
+            .friend_storage
+            .get_friend_list_content(&friend_room)
+            .await
+            .map_err(|e| ApiError::database(format!("Database error: {}", e)))?
+            .unwrap_or_else(|| json!({ "friends": [] }));
+
+        if let Some(friends) = content.get_mut("friends").and_then(|f| f.as_array_mut()) {
+            for friend in friends.iter_mut() {
+                if friend.get("user_id").and_then(|u| u.as_str()) == Some(friend_id) {
+                    friend["status"] = json!("normal");
+                    friend["unblocked_at"] = json!(chrono::Utc::now().timestamp_millis());
+                    break;
+                }
+            }
+        }
+
+        self.send_state_event(&friend_room, user_id, "m.friends.list", "", content).await?;
+
+        Ok(())
+    }
+
     /// 获取收到的好友请求列表
     pub async fn get_incoming_requests(&self, user_id: &str) -> ApiResult<Vec<serde_json::Value>> {
         let friend_room = self.create_friend_list_room(user_id).await?;

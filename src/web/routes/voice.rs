@@ -321,7 +321,7 @@ async fn upload_voice_message(
     let duration_ms = body
         .get("duration_ms")
         .and_then(|v| v.as_i64())
-        .unwrap_or(0) as i32;
+        .unwrap_or(0) as i64;
 
     if duration_ms <= 0 {
         return Err(ApiError::bad_request(

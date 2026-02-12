@@ -39,15 +39,6 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
         }
     };
 
-    sqlx::query("DROP TABLE IF EXISTS voice_usage_stats CASCADE")
-        .execute(&pool)
-        .await
-        .ok();
-    sqlx::query("DROP TABLE IF EXISTS voice_messages CASCADE")
-        .execute(&pool)
-        .await
-        .ok();
-
     let cache = Arc::new(CacheManager::new(CacheConfig::default()));
     let storage = VoiceStorage::new(&Arc::new(pool.clone()), cache);
     storage

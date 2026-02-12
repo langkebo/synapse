@@ -258,6 +258,27 @@ impl EventStorage {
         .await
     }
 
+    pub async fn get_state_event(
+        &self,
+        room_id: &str,
+        event_type: &str,
+        state_key: &str,
+    ) -> Result<Option<StateEvent>, sqlx::Error> {
+        sqlx::query_as::<_, StateEvent>(
+            r#"
+            SELECT * FROM events 
+            WHERE room_id = $1 AND event_type = $2 AND state_key = $3 
+            ORDER BY origin_server_ts DESC 
+            LIMIT 1
+            "#,
+        )
+        .bind(room_id)
+        .bind(event_type)
+        .bind(state_key)
+        .fetch_optional(&*self.pool)
+        .await
+    }
+
     pub async fn report_event(
         &self,
         event_id: &str,
@@ -470,6 +491,134 @@ impl EventStorage {
         }
         
         Ok(result)
+    }
+
+    pub async fn get_event_by_id(&self, event_id: &str) -> Result<Option<RoomEvent>, sqlx::Error> {
+        sqlx::query_as::<_, RoomEvent>(
+            r#"
+            SELECT event_id, room_id, user_id, event_type, content, state_key, 
+                   COALESCE(depth, 0) as depth, origin_server_ts, processed_ts, 
+                   COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(origin, '') as origin
+            FROM events WHERE event_id = $1
+            "#,
+        )
+        .bind(event_id)
+        .fetch_optional(&*self.pool)
+        .await
+    }
+
+    pub async fn get_events_before(
+        &self,
+        room_id: &str,
+        ts: i64,
+        limit: i64,
+    ) -> Result<Vec<RoomEvent>, sqlx::Error> {
+        sqlx::query_as::<_, RoomEvent>(
+            r#"
+            SELECT event_id, room_id, user_id, event_type, content, state_key, 
+                   COALESCE(depth, 0) as depth, origin_server_ts, processed_ts, 
+                   COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(origin, '') as origin
+            FROM events 
+            WHERE room_id = $1 AND origin_server_ts < $2 
+            ORDER BY origin_server_ts DESC 
+            LIMIT $3
+            "#,
+        )
+        .bind(room_id)
+        .bind(ts)
+        .bind(limit)
+        .fetch_all(&*self.pool)
+        .await
+    }
+
+    pub async fn get_events_after(
+        &self,
+        room_id: &str,
+        ts: i64,
+        limit: i64,
+    ) -> Result<Vec<RoomEvent>, sqlx::Error> {
+        sqlx::query_as::<_, RoomEvent>(
+            r#"
+            SELECT event_id, room_id, user_id, event_type, content, state_key, 
+                   COALESCE(depth, 0) as depth, origin_server_ts, processed_ts, 
+                   COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(origin, '') as origin
+            FROM events 
+            WHERE room_id = $1 AND origin_server_ts > $2 
+            ORDER BY origin_server_ts ASC 
+            LIMIT $3
+            "#,
+        )
+        .bind(room_id)
+        .bind(ts)
+        .bind(limit)
+        .fetch_all(&*self.pool)
+        .await
+    }
+
+    pub async fn get_recent_events(
+        &self,
+        room_id: &str,
+        limit: i64,
+    ) -> Result<Vec<RoomEvent>, sqlx::Error> {
+        sqlx::query_as::<_, RoomEvent>(
+            r#"
+            SELECT event_id, room_id, user_id, event_type, content, state_key, 
+                   COALESCE(depth, 0) as depth, origin_server_ts, processed_ts, 
+                   COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(origin, '') as origin
+            FROM events 
+            WHERE room_id = $1 
+            ORDER BY origin_server_ts DESC 
+            LIMIT $2
+            "#,
+        )
+        .bind(room_id)
+        .bind(limit)
+        .fetch_all(&*self.pool)
+        .await
+    }
+
+    pub async fn get_event_at_or_before(
+        &self,
+        room_id: &str,
+        ts: i64,
+    ) -> Result<Option<RoomEvent>, sqlx::Error> {
+        sqlx::query_as::<_, RoomEvent>(
+            r#"
+            SELECT event_id, room_id, user_id, event_type, content, state_key, 
+                   COALESCE(depth, 0) as depth, origin_server_ts, processed_ts, 
+                   COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(origin, '') as origin
+            FROM events 
+            WHERE room_id = $1 AND origin_server_ts <= $2 
+            ORDER BY origin_server_ts DESC 
+            LIMIT 1
+            "#,
+        )
+        .bind(room_id)
+        .bind(ts)
+        .fetch_optional(&*self.pool)
+        .await
+    }
+
+    pub async fn get_event_at_or_after(
+        &self,
+        room_id: &str,
+        ts: i64,
+    ) -> Result<Option<RoomEvent>, sqlx::Error> {
+        sqlx::query_as::<_, RoomEvent>(
+            r#"
+            SELECT event_id, room_id, user_id, event_type, content, state_key, 
+                   COALESCE(depth, 0) as depth, origin_server_ts, processed_ts, 
+                   COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(origin, '') as origin
+            FROM events 
+            WHERE room_id = $1 AND origin_server_ts >= $2 
+            ORDER BY origin_server_ts ASC 
+            LIMIT 1
+            "#,
+        )
+        .bind(room_id)
+        .bind(ts)
+        .fetch_optional(&*self.pool)
+        .await
     }
 }
 

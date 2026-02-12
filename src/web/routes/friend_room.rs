@@ -17,6 +17,9 @@ pub fn create_friend_router(state: AppState) -> Router<AppState> {
         .route("/_matrix/client/v1/friends/request/{user_id}/cancel", post(cancel_friend_request))
         .route("/_matrix/client/v1/friends/requests/incoming", get(get_incoming_requests))
         .route("/_matrix/client/v1/friends/requests/outgoing", get(get_outgoing_requests))
+        .route("/_matrix/client/v1/friends/blocked", get(get_blocked_friends))
+        .route("/_matrix/client/v1/friends/{user_id}/block", post(block_friend))
+        .route("/_matrix/client/v1/friends/{user_id}/unblock", post(unblock_friend))
         .route("/_matrix/client/v1/friends/{user_id}", delete(remove_friend))
         .route("/_matrix/client/v1/friends/{user_id}/note", put(update_friend_note))
         .route("/_matrix/client/v1/friends/{user_id}/status", put(update_friend_status))
@@ -174,6 +177,58 @@ async fn get_outgoing_requests(
         .await?;
     
     Ok(Json(json!({ "requests": requests })))
+}
+
+async fn get_blocked_friends(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+) -> Result<Json<Value>, ApiError> {
+    let blocked = state
+        .services
+        .friend_room_service
+        .get_blocked_friends(&auth_user.user_id)
+        .await?;
+    
+    Ok(Json(json!({
+        "blocked": blocked,
+        "total": blocked.len()
+    })))
+}
+
+async fn block_friend(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(user_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    validate_user_id(&user_id)?;
+
+    if user_id == auth_user.user_id {
+        return Err(ApiError::bad_request("Cannot block yourself".to_string()));
+    }
+
+    state
+        .services
+        .friend_room_service
+        .block_friend(&auth_user.user_id, &user_id)
+        .await?;
+
+    Ok(Json(json!({ "status": "blocked" })))
+}
+
+async fn unblock_friend(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(user_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    validate_user_id(&user_id)?;
+
+    state
+        .services
+        .friend_room_service
+        .unblock_friend(&auth_user.user_id, &user_id)
+        .await?;
+
+    Ok(Json(json!({ "status": "unblocked" })))
 }
 
 async fn remove_friend(

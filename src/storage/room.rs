@@ -541,6 +541,18 @@ impl RoomStorage {
         Ok(result.map(|r| r.0))
     }
 
+    pub async fn get_alias_creator(&self, alias: &str) -> Result<Option<String>, sqlx::Error> {
+        let result: Option<(String,)> = sqlx::query_as(
+            r#"
+            SELECT created_by FROM room_aliases WHERE alias = $1
+            "#,
+        )
+        .bind(alias)
+        .fetch_optional(&*self.pool)
+        .await?;
+        Ok(result.map(|r| r.0))
+    }
+
     pub async fn set_room_directory(
         &self,
         room_id: &str,
@@ -640,6 +652,25 @@ impl RoomStorage {
         .bind(event_id)
         .bind(sent_to)
         .bind(receipt_data)
+        .bind(now)
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn set_room_tombstone(
+        &self,
+        room_id: &str,
+        replacement_room: &str,
+    ) -> Result<(), sqlx::Error> {
+        let now = chrono::Utc::now().timestamp_millis();
+        sqlx::query(
+            r#"
+            UPDATE rooms SET tombstone = $2, updated_ts = $3 WHERE room_id = $1
+            "#,
+        )
+        .bind(room_id)
+        .bind(replacement_room)
         .bind(now)
         .execute(&*self.pool)
         .await?;

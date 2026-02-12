@@ -29,34 +29,6 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
         }
     };
 
-    sqlx::query("DROP TABLE IF EXISTS events CASCADE")
-        .execute(&pool)
-        .await
-        .ok();
-
-    sqlx::query(r#"
-        CREATE TABLE events (
-            event_id VARCHAR(255) PRIMARY KEY,
-            room_id VARCHAR(255) NOT NULL,
-            user_id VARCHAR(255) NOT NULL,
-            sender VARCHAR(255) NOT NULL,
-            event_type TEXT NOT NULL,
-            content JSONB NOT NULL,
-            state_key TEXT,
-            depth BIGINT,
-            origin_server_ts BIGINT NOT NULL,
-            processed_ts BIGINT NOT NULL,
-            not_before BIGINT,
-            status TEXT,
-            reference_image TEXT,
-            origin TEXT,
-            unsigned JSONB
-        )
-    "#)
-    .execute(&pool)
-    .await
-    .expect("Failed to create events table");
-
     Some(pool)
 }
 

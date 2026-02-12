@@ -396,6 +396,42 @@ impl RoomService {
             return Err(ApiError::not_found("User not found".to_string()));
         }
 
+        let current_membership = self
+            .member_storage
+            .get_membership(room_id, user_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
+
+        match current_membership.as_deref() {
+            Some("ban") => {
+                return Err(ApiError::forbidden(
+                    "You are banned from this room".to_string(),
+                ));
+            }
+            Some("join") => {
+                return Ok(());
+            }
+            Some("invite") => {
+            }
+            Some("leave") | None => {
+                let room = self
+                    .room_storage
+                    .get_room(room_id)
+                    .await
+                    .map_err(|e| ApiError::internal(format!("Failed to get room: {}", e)))?;
+
+                if let Some(room) = room {
+                    let join_rule = room.join_rule.as_str();
+                    if join_rule != "public" && join_rule != "knock" {
+                        return Err(ApiError::forbidden(
+                            "You do not have permission to join this room".to_string(),
+                        ));
+                    }
+                }
+            }
+            _ => {}
+        }
+
         self.member_storage
             .add_member(room_id, user_id, "join", None, None, None)
             .await
@@ -421,6 +457,33 @@ impl RoomService {
             .map_err(|e| ApiError::internal(format!("Failed to update member count: {}", e)))?;
 
         Ok(())
+    }
+
+    pub async fn forget_room(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
+        let membership = self
+            .member_storage
+            .get_membership(room_id, user_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
+
+        match membership {
+            Some(m) if m == "leave" => {
+                self.member_storage
+                    .forget_room(room_id, user_id)
+                    .await
+                    .map_err(|e| ApiError::internal(format!("Failed to forget room: {}", e)))?;
+                Ok(())
+            }
+            Some(m) if m == "ban" => {
+                Err(ApiError::forbidden(
+                    "Cannot forget a room you are banned from".to_string(),
+                ))
+            }
+            Some(_) => Err(ApiError::bad_request(
+                "You must leave the room before forgetting it".to_string(),
+            )),
+            None => Err(ApiError::not_found("You are not in this room".to_string())),
+        }
     }
 
     pub async fn get_room_members(
@@ -754,6 +817,68 @@ impl RoomService {
             .remove_room_directory(room_id)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to remove room from directory: {}", e)))
+    }
+
+    pub async fn upgrade_room(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        new_version: &str,
+    ) -> ApiResult<String> {
+        let room = self
+            .room_storage
+            .get_room(room_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to get room: {}", e)))?
+            .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
+
+        let is_creator = self.is_room_creator(room_id, user_id).await?;
+        if !is_creator {
+            return Err(ApiError::forbidden(
+                "Only the room creator can upgrade the room".to_string(),
+            ));
+        }
+
+        let new_room_id = format!("!{}:{}", uuid::Uuid::new_v4(), self.server_name);
+
+        self.room_storage
+            .create_room(
+                &new_room_id,
+                user_id,
+                &room.join_rule,
+                new_version,
+                room.is_public,
+                None,
+            )
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to create upgraded room: {}", e)))?;
+
+        let members = self
+            .member_storage
+            .get_joined_members(room_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to get members: {}", e)))?;
+
+        for member in members {
+            if member.user_id != user_id {
+                let _ = self
+                    .member_storage
+                    .add_member(&new_room_id, &member.user_id, "join", None, None, None)
+                    .await;
+            }
+        }
+
+        self.member_storage
+            .add_member(&new_room_id, user_id, "join", None, None, None)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to add creator to new room: {}", e)))?;
+
+        self.room_storage
+            .set_room_tombstone(room_id, &new_room_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to set tombstone: {}", e)))?;
+
+        Ok(new_room_id)
     }
 
     pub async fn process_read_receipt(

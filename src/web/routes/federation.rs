@@ -119,6 +119,22 @@ pub fn create_federation_router(state: AppState) -> Router<AppState> {
         .route(
             "/_matrix/federation/v2/user/keys/query",
             post(user_keys_query),
+        )
+        .route(
+            "/_matrix/federation/v1/exchange_third_party_invite/{room_id}",
+            put(exchange_third_party_invite),
+        )
+        .route(
+            "/_matrix/federation/v1/on_bind_third_party_invite/{room_id}",
+            put(on_bind_third_party_invite),
+        )
+        .route(
+            "/_matrix/federation/v1/3pid/onbind",
+            post(three_pid_onbind),
+        )
+        .route(
+            "/_matrix/federation/v1/sendToDevice/{txn_id}",
+            put(send_to_device),
         );
 
     let protected = protected.layer(middleware::from_fn_with_state(
@@ -1232,4 +1248,171 @@ async fn user_keys_query(
     Ok(Json(json!({
         "device_keys": {}
     })))
+}
+
+async fn exchange_third_party_invite(
+    State(state): State<AppState>,
+    Path(room_id): Path<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    ::tracing::info!("Processing exchange third party invite for room: {}", room_id);
+
+    let sender = body.get("sender")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::bad_request("Missing sender".to_string()))?;
+
+    let state_key = body.get("state_key")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::bad_request("Missing state_key".to_string()))?;
+
+    let event_id = format!("${}", uuid::Uuid::new_v4());
+    let now = chrono::Utc::now().timestamp();
+
+    let content = body.get("content").cloned().unwrap_or(json!({}));
+
+    sqlx::query(
+        r#"
+        INSERT INTO events (event_id, room_id, event_type, state_key, sender, content, origin_server_ts)
+        VALUES ($1, $2, 'm.room.third_party_invite', $3, $4, $5, $6)
+        "#,
+    )
+    .bind(&event_id)
+    .bind(&room_id)
+    .bind(state_key)
+    .bind(sender)
+    .bind(content.to_string())
+    .bind(now)
+    .execute(&*state.services.user_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Failed to store invite: {}", e)))?;
+
+    Ok(Json(json!({
+        "event_id": event_id
+    })))
+}
+
+async fn on_bind_third_party_invite(
+    State(state): State<AppState>,
+    Path(room_id): Path<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    ::tracing::info!("Processing on bind third party invite for room: {}", room_id);
+
+    let event_id = body.get("event_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::bad_request("Missing event_id".to_string()))?;
+
+    let sender = body.get("sender")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::bad_request("Missing sender".to_string()))?;
+
+    let state_key = body.get("state_key")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::bad_request("Missing state_key".to_string()))?;
+
+    let now = chrono::Utc::now().timestamp();
+    let content = body.get("content").cloned().unwrap_or(json!({}));
+
+    sqlx::query(
+        r#"
+        INSERT INTO events (event_id, room_id, event_type, state_key, sender, content, origin_server_ts)
+        VALUES ($1, $2, 'm.room.member', $3, $4, $5, $6)
+        ON CONFLICT (event_id) DO UPDATE SET content = $5
+        "#,
+    )
+    .bind(event_id)
+    .bind(&room_id)
+    .bind(state_key)
+    .bind(sender)
+    .bind(content.to_string())
+    .bind(now)
+    .execute(&*state.services.user_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Failed to bind third party invite: {}", e)))?;
+
+    Ok(Json(json!({})))
+}
+
+async fn three_pid_onbind(
+    State(state): State<AppState>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    ::tracing::info!("Processing 3pid onbind");
+
+    let mxid = body.get("mxid")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::bad_request("Missing mxid".to_string()))?;
+
+    let medium = body.get("medium")
+        .and_then(|v| v.as_str())
+        .unwrap_or("email");
+
+    let address = body.get("address")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    let now = chrono::Utc::now().timestamp();
+
+    sqlx::query(
+        r#"
+        INSERT INTO user_threepids (user_id, medium, address, validated_at, added_at)
+        VALUES ($1, $2, $3, $4, $4)
+        ON CONFLICT (user_id, medium, address) DO UPDATE SET validated_at = $4
+        "#,
+    )
+    .bind(mxid)
+    .bind(medium)
+    .bind(address)
+    .bind(now)
+    .execute(&*state.services.user_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Failed to bind 3pid: {}", e)))?;
+
+    Ok(Json(json!({})))
+}
+
+async fn send_to_device(
+    State(state): State<AppState>,
+    Path(txn_id): Path<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    ::tracing::info!("Processing send to device, txn_id: {}", txn_id);
+
+    let messages = body.get("messages")
+        .and_then(|v| v.as_object())
+        .ok_or_else(|| ApiError::bad_request("Missing messages".to_string()))?;
+
+    let now = chrono::Utc::now().timestamp();
+
+    for (user_id, devices) in messages {
+        if let Some(devices_map) = devices.as_object() {
+            for (device_id, message) in devices_map {
+                let message_content = message.to_string();
+                let event_type = body.get("type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("m.room.message");
+
+                sqlx::query(
+                    r#"
+                    INSERT INTO to_device_messages (
+                        message_id, user_id, device_id, event_type, content, received_ts, txn_id
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7)
+                    "#,
+                )
+                .bind(format!("{}_{}", txn_id, uuid::Uuid::new_v4()))
+                .bind(user_id)
+                .bind(device_id)
+                .bind(event_type)
+                .bind(&message_content)
+                .bind(now)
+                .bind(&txn_id)
+                .execute(&*state.services.user_storage.pool)
+                .await
+                .map_err(|e| ApiError::internal(format!("Failed to store to-device message: {}", e)))?;
+            }
+        }
+    }
+
+    Ok(Json(json!({})))
 }

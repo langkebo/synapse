@@ -407,6 +407,79 @@ impl UserStorage {
             .await?;
         Ok(())
     }
+
+    pub async fn get_account_data(
+        &self,
+        user_id: &str,
+        event_type: &str,
+    ) -> Result<Option<serde_json::Value>, sqlx::Error> {
+        let result: Option<(String,)> = sqlx::query_as(
+            r#"
+            SELECT content FROM user_account_data WHERE user_id = $1 AND event_type = $2
+            "#,
+        )
+        .bind(user_id)
+        .bind(event_type)
+        .fetch_optional(&*self.pool)
+        .await?;
+
+        match result {
+            Some((content_str,)) => {
+                let content: serde_json::Value = serde_json::from_str(&content_str).unwrap_or(serde_json::json!({}));
+                Ok(Some(content))
+            }
+            None => Ok(None),
+        }
+    }
+
+    pub async fn create_filter(
+        &self,
+        user_id: &str,
+        filter: &serde_json::Value,
+    ) -> Result<String, sqlx::Error> {
+        let filter_id = uuid::Uuid::new_v4().to_string();
+        let filter_str = serde_json::to_string(filter).unwrap_or_default();
+        let now: i64 = chrono::Utc::now().timestamp();
+
+        sqlx::query(
+            r#"
+            INSERT INTO user_filters (filter_id, user_id, filter_json, created_ts)
+            VALUES ($1, $2, $3, $4)
+            "#,
+        )
+        .bind(&filter_id)
+        .bind(user_id)
+        .bind(&filter_str)
+        .bind(now)
+        .execute(&*self.pool)
+        .await?;
+
+        Ok(filter_id)
+    }
+
+    pub async fn get_filter(
+        &self,
+        user_id: &str,
+        filter_id: &str,
+    ) -> Result<Option<serde_json::Value>, sqlx::Error> {
+        let result: Option<(String,)> = sqlx::query_as(
+            r#"
+            SELECT filter_json FROM user_filters WHERE filter_id = $1 AND user_id = $2
+            "#,
+        )
+        .bind(filter_id)
+        .bind(user_id)
+        .fetch_optional(&*self.pool)
+        .await?;
+
+        match result {
+            Some((filter_str,)) => {
+                let filter: serde_json::Value = serde_json::from_str(&filter_str).unwrap_or(serde_json::json!({}));
+                Ok(Some(filter))
+            }
+            None => Ok(None),
+        }
+    }
 }
 
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]

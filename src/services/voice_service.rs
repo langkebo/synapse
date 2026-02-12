@@ -17,8 +17,8 @@ struct VoiceMessageDBRow {
     session_id: Option<String>,
     file_path: String,
     content_type: String,
-    duration_ms: Option<i32>, // Changed to i32 to match schema/usage
-    file_size: Option<i64>,
+    duration_ms: i64,
+    file_size: i64,
     waveform_data: Option<sqlx::types::Json<serde_json::Value>>,
     created_ts: i64,
     transcribe_text: Option<String>,
@@ -40,7 +40,7 @@ pub struct VoiceMessageSaveParams {
     pub session_id: Option<String>,
     pub file_path: String,
     pub content_type: String,
-    pub duration_ms: i32,
+    pub duration_ms: i64,
     pub file_size: i64,
     pub waveform_data: Option<JsonValue>,
 }
@@ -52,7 +52,7 @@ pub struct VoiceMessageUploadParams {
     pub session_id: Option<String>,
     pub content: Vec<u8>,
     pub content_type: String,
-    pub duration_ms: i32,
+    pub duration_ms: i64,
 }
 
 #[derive(Clone)]
@@ -80,12 +80,32 @@ impl VoiceStorage {
                 session_id VARCHAR(255),
                 file_path VARCHAR(512) NOT NULL,
                 content_type VARCHAR(100) NOT NULL,
-                duration_ms INT NOT NULL,
+                duration_ms BIGINT NOT NULL,
                 file_size BIGINT NOT NULL,
                 waveform_data TEXT,
                 transcribe_text TEXT,
-                created_ts BIGINT NOT NULL
+                created_ts BIGINT NOT NULL,
+                processed BOOLEAN DEFAULT FALSE,
+                processed_ts BIGINT,
+                mime_type VARCHAR(100),
+                encryption TEXT
             )
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_voice_messages_user_id ON voice_messages(user_id)
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_voice_messages_room_id ON voice_messages(room_id)
             "#,
         )
         .execute(&*self.pool)
@@ -109,6 +129,14 @@ impl VoiceStorage {
                 updated_ts BIGINT,
                 UNIQUE(user_id, room_id, period_start)
             )
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_voice_usage_stats_user_id ON voice_usage_stats(user_id)
             "#,
         )
         .execute(&*self.pool)
@@ -179,8 +207,8 @@ impl VoiceStorage {
             session_id: r.session_id,
             file_path: r.file_path,
             content_type: r.content_type,
-            duration_ms: r.duration_ms.unwrap_or(0),
-            file_size: r.file_size.unwrap_or(0),
+            duration_ms: r.duration_ms,
+            file_size: r.file_size,
             waveform_data: r.waveform_data.map(|w| w.0),
             transcribe_text: r.transcribe_text,
             created_ts: r.created_ts,
@@ -219,8 +247,8 @@ impl VoiceStorage {
                 session_id: r.session_id.clone(),
                 file_path: r.file_path.clone(),
                 content_type: r.content_type.clone(),
-                duration_ms: r.duration_ms.unwrap_or(0),
-                file_size: r.file_size.unwrap_or(0),
+                duration_ms: r.duration_ms,
+                file_size: r.file_size,
                 waveform_data: r.waveform_data.clone().map(|w| w.0),
                 transcribe_text: r.transcribe_text.clone(),
                 created_ts: r.created_ts,
@@ -246,8 +274,8 @@ impl VoiceStorage {
         .await?;
 
         if let Some(msg) = message {
-            let duration_ms: i64 = msg.try_get::<Option<i64>, _>("duration_ms")?.unwrap_or(0);
-            let file_size: i64 = msg.try_get::<Option<i64>, _>("file_size")?.unwrap_or(0);
+            let duration_ms: i64 = msg.try_get("duration_ms")?;
+            let file_size: i64 = msg.try_get("file_size")?;
 
             sqlx::query(r#"DELETE FROM voice_messages WHERE message_id = $1"#)
                 .bind(message_id)
@@ -291,8 +319,8 @@ impl VoiceStorage {
                 session_id: r.session_id.clone(),
                 file_path: r.file_path.clone(),
                 content_type: r.content_type.clone(),
-                duration_ms: r.duration_ms.unwrap_or(0),
-                file_size: r.file_size.unwrap_or(0),
+                duration_ms: r.duration_ms,
+                file_size: r.file_size,
                 waveform_data: r.waveform_data.clone().map(|w| w.0),
                 transcribe_text: r.transcribe_text.clone(),
                 created_ts: r.created_ts,
@@ -462,7 +490,7 @@ pub struct VoiceMessageInfo {
     pub session_id: Option<String>,
     pub file_path: String,
     pub content_type: String,
-    pub duration_ms: i32,
+    pub duration_ms: i64,
     pub file_size: i64,
     pub waveform_data: Option<serde_json::Value>,
     pub transcribe_text: Option<String>,

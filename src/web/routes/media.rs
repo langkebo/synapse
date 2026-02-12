@@ -21,6 +21,10 @@ pub fn create_media_router(_state: AppState) -> Router<AppState> {
             get(download_media),
         )
         .route(
+            "/_matrix/media/v3/download/{server_name}/{media_id}/{filename}",
+            get(download_media_with_filename),
+        )
+        .route(
             "/_matrix/media/v3/thumbnail/{server_name}/{media_id}",
             get(get_thumbnail),
         )
@@ -137,6 +141,41 @@ async fn download_media(
             let headers = [
                 ("Content-Type".to_string(), "application/json".to_string()),
                 ("Content-Length".to_string(), error_body.len().to_string()),
+            ];
+            (headers, error_body)
+        }
+    }
+}
+
+async fn download_media_with_filename(
+    State(state): State<AppState>,
+    Path((server_name, media_id, filename)): Path<(String, String, String)>,
+) -> impl IntoResponse {
+    match state
+        .services
+        .media_service
+        .download_media(&server_name, &media_id)
+        .await
+    {
+        Ok(content) => {
+            let content_type = guess_content_type(&media_id);
+            let headers = [
+                ("Content-Type".to_string(), content_type.to_string()),
+                ("Content-Length".to_string(), content.len().to_string()),
+                ("Content-Disposition".to_string(), format!("attachment; filename=\"{}\"", filename)),
+            ];
+            (headers, content)
+        }
+        Err(e) => {
+            let error_body = serde_json::to_vec(&json!({
+                "errcode": e.code(),
+                "error": e.message()
+            }))
+            .expect("Failed to serialize error response to JSON");
+            let headers = [
+                ("Content-Type".to_string(), "application/json".to_string()),
+                ("Content-Length".to_string(), error_body.len().to_string()),
+                ("Content-Disposition".to_string(), String::new()),
             ];
             (headers, error_body)
         }

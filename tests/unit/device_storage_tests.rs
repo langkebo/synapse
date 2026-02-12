@@ -36,30 +36,6 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
         }
     };
 
-    sqlx::query("DROP TABLE IF EXISTS devices CASCADE")
-        .execute(&pool)
-        .await
-        .ok();
-
-    sqlx::query(r#"
-        CREATE TABLE devices (
-            device_id VARCHAR(255) PRIMARY KEY,
-            user_id VARCHAR(255) NOT NULL,
-            display_name TEXT,
-            device_key JSONB,
-            last_seen_ts BIGINT,
-            last_seen_ip TEXT,
-            created_at BIGINT NOT NULL,
-            first_seen_ts BIGINT NOT NULL,
-            created_ts BIGINT,
-            appservice_id TEXT,
-            ignored_user_list TEXT
-        )
-    "#)
-    .execute(&pool)
-    .await
-    .expect("Failed to create devices table");
-
     Some(pool)
 }
 

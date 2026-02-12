@@ -142,9 +142,44 @@ impl RoomMemberStorage {
     }
 
     pub async fn remove_member(&self, room_id: &str, user_id: &str) -> Result<(), sqlx::Error> {
+        let now = chrono::Utc::now().timestamp_millis();
         sqlx::query(
             r#"
-            DELETE FROM room_memberships WHERE room_id = $1 AND user_id = $2
+            UPDATE room_memberships 
+            SET membership = 'leave', left_ts = $3, updated_ts = $3
+            WHERE room_id = $1 AND user_id = $2
+            "#,
+        )
+        .bind(room_id)
+        .bind(user_id)
+        .bind(now)
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn get_membership(
+        &self,
+        room_id: &str,
+        user_id: &str,
+    ) -> Result<Option<String>, sqlx::Error> {
+        let result: Option<(String,)> = sqlx::query_as(
+            r#"
+            SELECT membership FROM room_memberships WHERE room_id = $1 AND user_id = $2
+            "#,
+        )
+        .bind(room_id)
+        .bind(user_id)
+        .fetch_optional(&*self.pool)
+        .await?;
+
+        Ok(result.map(|r| r.0))
+    }
+
+    pub async fn forget_room(&self, room_id: &str, user_id: &str) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            DELETE FROM room_memberships WHERE room_id = $1 AND user_id = $2 AND membership = 'leave'
             "#,
         )
         .bind(room_id)
@@ -317,5 +352,17 @@ impl RoomMemberStorage {
         .fetch_all(&*self.pool)
         .await?;
         Ok(memberships)
+    }
+
+    pub async fn get_members(&self, room_id: &str) -> Result<Vec<String>, sqlx::Error> {
+        let members: Vec<(String,)> = sqlx::query_as(
+            r#"
+            SELECT user_id FROM room_memberships WHERE room_id = $1 AND membership = 'join'
+            "#,
+        )
+        .bind(room_id)
+        .fetch_all(&*self.pool)
+        .await?;
+        Ok(members.into_iter().map(|m| m.0).collect())
     }
 }

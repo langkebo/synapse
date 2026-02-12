@@ -338,6 +338,39 @@ impl DatabaseInitService {
             .execute(&*self.pool)
             .await?;
 
+        // Ensure user_filters table exists
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS user_filters (
+                filter_id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                filter_json TEXT NOT NULL,
+                created_ts BIGINT NOT NULL
+            )
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_user_filters_user_id ON user_filters(user_id)")
+            .execute(&*self.pool)
+            .await?;
+
+        // Ensure user_account_data table exists
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS user_account_data (
+                user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                event_type TEXT NOT NULL,
+                content TEXT NOT NULL,
+                created_ts BIGINT NOT NULL,
+                PRIMARY KEY (user_id, event_type)
+            )
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
         Ok("附加表和列检查完成".to_string())
     }
 }

@@ -108,7 +108,7 @@ CREATE TABLE IF NOT EXISTS events (
     event_id TEXT NOT NULL PRIMARY KEY,
     room_id TEXT NOT NULL,
     user_id TEXT NOT NULL,
-    type TEXT NOT NULL,
+    event_type TEXT NOT NULL,
     content TEXT NOT NULL,
     state_key TEXT,
     depth BIGINT NOT NULL DEFAULT 0,

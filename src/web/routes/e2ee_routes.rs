@@ -22,6 +22,14 @@ pub fn create_e2ee_router(_state: AppState) -> Router<AppState> {
             "/_matrix/client/r0/sendToDevice/{event_type}/{transaction_id}",
             put(send_to_device),
         )
+        .route(
+            "/_matrix/client/unstable/keys/signatures/upload",
+            post(upload_signatures),
+        )
+        .route(
+            "/_matrix/client/r0/keys/device_signing/upload",
+            post(upload_device_signing_keys),
+        )
 }
 
 #[axum::debug_handler]
@@ -171,6 +179,113 @@ async fn send_to_device(
         .to_device_service
         .send_messages(&auth_user.user_id, messages)
         .await?;
+
+    Ok(Json(serde_json::json!({})))
+}
+
+#[axum::debug_handler]
+async fn upload_signatures(
+    State(state): State<AppState>,
+    _auth_user: AuthenticatedUser,
+    MatrixJson(body): MatrixJson<Value>,
+) -> Result<Json<Value>, crate::error::ApiError> {
+    let signatures = body.get("signatures").cloned().unwrap_or(body.clone());
+    
+    if let Some(sigs) = signatures.as_object() {
+        for (user_id, user_sigs) in sigs {
+            if let Some(device_sigs) = user_sigs.as_object() {
+                for (device_id, sig_data) in device_sigs {
+                    if let Some(sig_obj) = sig_data.as_object() {
+                        for (key_id, signature) in sig_obj {
+                            sqlx::query(
+                                r#"
+                                INSERT INTO device_key_signatures 
+                                (user_id, device_id, key_id, signature, created_at)
+                                VALUES ($1, $2, $3, $4, $5)
+                                ON CONFLICT (user_id, device_id, key_id) 
+                                DO UPDATE SET signature = $4
+                                "#,
+                            )
+                            .bind(user_id)
+                            .bind(device_id)
+                            .bind(key_id)
+                            .bind(signature.to_string())
+                            .bind(chrono::Utc::now().timestamp())
+                            .execute(&*state.services.user_storage.pool)
+                            .await
+                            .ok();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(Json(serde_json::json!({})))
+}
+
+#[axum::debug_handler]
+async fn upload_device_signing_keys(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    MatrixJson(body): MatrixJson<Value>,
+) -> Result<Json<Value>, crate::error::ApiError> {
+    let master_key = body.get("master_key").cloned();
+    let self_signing_key = body.get("self_signing_key").cloned();
+    let user_signing_key = body.get("user_signing_key").cloned();
+
+    let now = chrono::Utc::now().timestamp();
+
+    if let Some(master) = master_key {
+        sqlx::query(
+            r#"
+            INSERT INTO cross_signing_keys 
+            (user_id, key_type, key_data, created_at)
+            VALUES ($1, 'master', $2, $3)
+            ON CONFLICT (user_id, key_type) DO UPDATE SET key_data = $2
+            "#,
+        )
+        .bind(&auth_user.user_id)
+        .bind(master.to_string())
+        .bind(now)
+        .execute(&*state.services.user_storage.pool)
+        .await
+        .ok();
+    }
+
+    if let Some(self_signing) = self_signing_key {
+        sqlx::query(
+            r#"
+            INSERT INTO cross_signing_keys 
+            (user_id, key_type, key_data, created_at)
+            VALUES ($1, 'self_signing', $2, $3)
+            ON CONFLICT (user_id, key_type) DO UPDATE SET key_data = $2
+            "#,
+        )
+        .bind(&auth_user.user_id)
+        .bind(self_signing.to_string())
+        .bind(now)
+        .execute(&*state.services.user_storage.pool)
+        .await
+        .ok();
+    }
+
+    if let Some(user_signing) = user_signing_key {
+        sqlx::query(
+            r#"
+            INSERT INTO cross_signing_keys 
+            (user_id, key_type, key_data, created_at)
+            VALUES ($1, 'user_signing', $2, $3)
+            ON CONFLICT (user_id, key_type) DO UPDATE SET key_data = $2
+            "#,
+        )
+        .bind(&auth_user.user_id)
+        .bind(user_signing.to_string())
+        .bind(now)
+        .execute(&*state.services.user_storage.pool)
+        .await
+        .ok();
+    }
 
     Ok(Json(serde_json::json!({})))
 }

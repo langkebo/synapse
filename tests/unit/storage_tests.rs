@@ -37,36 +37,6 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
         }
     };
 
-    sqlx::query("DROP TABLE IF EXISTS users CASCADE")
-        .execute(&pool)
-        .await
-        .ok();
-
-    sqlx::query(r#"
-        CREATE TABLE users (
-            user_id VARCHAR(255) PRIMARY KEY,
-            username TEXT NOT NULL UNIQUE,
-            password_hash TEXT,
-            displayname TEXT,
-            avatar_url TEXT,
-            is_admin BOOLEAN DEFAULT FALSE,
-            deactivated BOOLEAN DEFAULT FALSE,
-            is_guest BOOLEAN DEFAULT FALSE,
-            consent_version TEXT,
-            appservice_id TEXT,
-            user_type TEXT,
-            shadow_banned BOOLEAN DEFAULT FALSE,
-            generation BIGINT DEFAULT 0,
-            invalid_update_ts BIGINT,
-            migration_state TEXT,
-            creation_ts BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT,
-            updated_ts BIGINT
-        )
-    "#)
-    .execute(&pool)
-    .await
-    .expect("Failed to create users table");
-
     Some(pool)
 }
 
