@@ -278,15 +278,15 @@ impl StreamWriterManager {
     pub async fn get_writer(&self, stream_type: StreamType) -> Arc<StreamWriter> {
         let mut writers = self.writers.write().await;
         
-        if !writers.contains_key(&stream_type) {
+        writers.entry(stream_type).or_insert_with(|| {
             let writer = StreamWriter::new(
                 stream_type,
                 self.config.clone(),
                 self.batch_sender.clone(),
                 self.instance_name.clone(),
             );
-            writers.insert(stream_type, Arc::new(writer));
-        }
+            Arc::new(writer)
+        });
         
         writers.get(&stream_type).unwrap().clone()
     }

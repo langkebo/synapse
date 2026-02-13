@@ -476,8 +476,6 @@ impl PrometheusExporter {
             if let Some(_first) = metric_group.first() {
                 let metric_type = if name.ends_with("_total") || name.ends_with("_count") {
                     "counter"
-                } else if name.ends_with("_sum") || name.ends_with("_avg") {
-                    "gauge"
                 } else {
                     "gauge"
                 };

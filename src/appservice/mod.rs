@@ -53,19 +53,19 @@ impl AppService {
         let compiled_user_namespaces = config.namespaces
             .users
             .iter()
-            .map(|ns| Self::compile_namespace(ns))
+            .map(Self::compile_namespace)
             .collect::<Result<Vec<_>, _>>()?;
 
         let compiled_alias_namespaces = config.namespaces
             .aliases
             .iter()
-            .map(|ns| Self::compile_namespace(ns))
+            .map(Self::compile_namespace)
             .collect::<Result<Vec<_>, _>>()?;
 
         let compiled_room_namespaces = config.namespaces
             .rooms
             .iter()
-            .map(|ns| Self::compile_namespace(ns))
+            .map(Self::compile_namespace)
             .collect::<Result<Vec<_>, _>>()?;
 
         let http_client = reqwest::Client::builder()

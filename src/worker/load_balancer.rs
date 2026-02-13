@@ -2,16 +2,17 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
-use tracing::{debug, info, warn};
+use tracing::debug;
 
 use super::{WorkerType, WorkerStatus, WorkerInfo};
 
 /// Load balancing strategy
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum LoadBalancingStrategy {
     RoundRobin,
+    #[default]
     LeastConnections,
     WeightedRoundRobin,
     LeastResponseTime,
@@ -19,11 +20,6 @@ pub enum LoadBalancingStrategy {
     Adaptive,
 }
 
-impl Default for LoadBalancingStrategy {
-    fn default() -> Self {
-        Self::LeastConnections
-    }
-}
 
 /// Worker load metrics
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -464,6 +460,7 @@ impl AutoScaler {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Instant;
 
     fn create_test_worker_info(id: &str, tasks: usize) -> WorkerInfo {
         WorkerInfo {

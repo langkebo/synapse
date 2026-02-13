@@ -4,7 +4,9 @@ use crate::services::redis_replication_service::{
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
+
+type ReplicationMessageHandler = Box<dyn Fn(ReplicationMessage) + Send + Sync>;
 
 /// Redis integration status
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -264,7 +266,7 @@ impl RedisIntegrationService {
 /// Redis pub/sub handler
 pub struct RedisPubSubHandler {
     integration: Arc<RedisIntegrationService>,
-    handlers: Arc<RwLock<Vec<Box<dyn Fn(ReplicationMessage) + Send + Sync>>>>,
+    handlers: Arc<RwLock<Vec<ReplicationMessageHandler>>>,
 }
 
 impl RedisPubSubHandler {

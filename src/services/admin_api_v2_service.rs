@@ -147,18 +147,15 @@ pub struct BatchOperationError {
 
 /// User role
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum UserRole {
+    #[default]
     User,
     Moderator,
     Admin,
     ServerAdmin,
 }
 
-impl Default for UserRole {
-    fn default() -> Self {
-        Self::User
-    }
-}
 
 /// User role assignment
 #[derive(Debug, Clone, Serialize, Deserialize)]

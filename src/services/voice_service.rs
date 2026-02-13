@@ -168,7 +168,7 @@ impl VoiceStorage {
         .bind(params.session_id.as_deref())
         .bind(&params.file_path)
         .bind(&params.content_type)
-        .bind(params.duration_ms as i64)
+        .bind(params.duration_ms)
         .bind(params.file_size)
         .bind(waveform_json)
         .bind(now)
@@ -176,7 +176,7 @@ impl VoiceStorage {
         .await?;
 
         let id: i64 = result.try_get("id")?;
-        self.update_user_stats(&params.user_id, params.duration_ms as i64, params.file_size)
+        self.update_user_stats(&params.user_id, params.duration_ms, params.file_size)
             .await?;
 
         Ok(id)

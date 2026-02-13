@@ -306,8 +306,10 @@ impl ConsentService {
     pub async fn get_stats(&self) -> ConsentStats {
         let consents = self.consents.read().await;
 
-        let mut stats = ConsentStats::default();
-        stats.total_consents = consents.len() as u64;
+        let mut stats = ConsentStats {
+            total_consents: consents.len() as u64,
+            ..Default::default()
+        };
 
         for consent in consents.values() {
             if consent.is_active() {

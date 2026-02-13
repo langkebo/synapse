@@ -112,17 +112,14 @@ pub struct ThumbnailResult {
 
 /// Thumbnail resize method
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Default)]
 pub enum ResizeMethod {
     Crop,
+    #[default]
     Scale,
     Fit,
 }
 
-impl Default for ResizeMethod {
-    fn default() -> Self {
-        Self::Scale
-    }
-}
 
 /// Thumbnail request
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -344,7 +341,7 @@ impl ThumbnailService {
                 return Ok(ImageDimensions::new(width, height));
             }
 
-            if marker >= 0xD0 && marker <= 0xD9 {
+            if (0xD0..=0xD9).contains(&marker) {
                 pos += 2;
             } else if pos + 4 <= data.len() {
                 let length = u16::from_be_bytes([data[pos + 2], data[pos + 3]]) as usize;

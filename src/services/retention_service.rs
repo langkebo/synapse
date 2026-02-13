@@ -200,15 +200,12 @@ impl RetentionService {
             loop {
                 interval.tick().await;
                 
-                match self.run_cleanup().await {
-                    stats => {
-                        if !stats.errors.is_empty() {
-                            warn!(
-                                error_count = stats.errors.len(),
-                                "Retention cleanup completed with errors"
-                            );
-                        }
-                    }
+                let stats = self.run_cleanup().await;
+                if !stats.errors.is_empty() {
+                    warn!(
+                        error_count = stats.errors.len(),
+                        "Retention cleanup completed with errors"
+                    );
                 }
             }
         })

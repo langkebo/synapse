@@ -20,19 +20,12 @@ pub struct PushNotification {
 
 /// Notification counts
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct NotificationCounts {
     pub unread: u32,
     pub missed_calls: u32,
 }
 
-impl Default for NotificationCounts {
-    fn default() -> Self {
-        Self {
-            unread: 0,
-            missed_calls: 0,
-        }
-    }
-}
 
 /// Push device registration
 #[derive(Debug, Clone, Serialize, Deserialize)]

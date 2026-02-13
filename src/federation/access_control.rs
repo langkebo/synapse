@@ -140,19 +140,17 @@ impl FederationAccessControl {
     }
 
     pub async fn check_access(&self, server_name: &str) -> FederationAccess {
-        if self.policy.blacklist_enabled {
-            if self.blacklist.read().await.contains(server_name) {
+        if self.policy.blacklist_enabled
+            && self.blacklist.read().await.contains(server_name) {
                 debug!(server_name = %server_name, "Server is blacklisted");
                 return FederationAccess::Blocked;
             }
-        }
 
-        if self.policy.whitelist_enabled {
-            if !self.whitelist.read().await.contains(server_name) {
+        if self.policy.whitelist_enabled
+            && !self.whitelist.read().await.contains(server_name) {
                 debug!(server_name = %server_name, "Server not in whitelist");
                 return FederationAccess::NotWhitelisted;
             }
-        }
 
         FederationAccess::Allowed
     }

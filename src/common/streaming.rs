@@ -55,8 +55,7 @@ impl StreamReader {
 
         self.bytes_read += n;
         if self.bytes_read > self.max_size {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
+            return Err(io::Error::other(
                 "Stream exceeded maximum size",
             ));
         }
@@ -88,8 +87,7 @@ impl StreamWriter {
 
     pub async fn write_chunk(&mut self, chunk: &[u8]) -> io::Result<()> {
         if self.bytes_written + chunk.len() > self.max_size {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
+            return Err(io::Error::other(
                 "Stream exceeded maximum size",
             ));
         }
@@ -119,8 +117,7 @@ where
         let chunk = chunk_result?;
 
         if total_bytes + chunk.len() > config.max_size {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
+            return Err(io::Error::other(
                 "Stream exceeded maximum size",
             ));
         }
@@ -173,8 +170,7 @@ impl ChunkedUploader {
 
     pub async fn write(&mut self, data: &[u8]) -> io::Result<()> {
         if self.total_bytes + data.len() > self.config.max_size {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
+            return Err(io::Error::other(
                 "Upload exceeded maximum size",
             ));
         }
@@ -192,7 +188,7 @@ impl ChunkedUploader {
                 is_last,
             })
             .await
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
+            .map_err(|e| io::Error::other(e.to_string()))
     }
 
     pub fn total_bytes(&self) -> usize {

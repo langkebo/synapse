@@ -289,24 +289,24 @@ impl PushRuleEvaluator {
             return count == exact;
         }
 
-        if condition.starts_with("==") {
-            if let Ok(n) = condition[2..].trim().parse::<usize>() {
+        if let Some(stripped) = condition.strip_prefix("==") {
+            if let Ok(n) = stripped.trim().parse::<usize>() {
                 return count == n;
             }
-        } else if condition.starts_with(">=") {
-            if let Ok(n) = condition[2..].trim().parse::<usize>() {
+        } else if let Some(stripped) = condition.strip_prefix(">=") {
+            if let Ok(n) = stripped.trim().parse::<usize>() {
                 return count >= n;
             }
-        } else if condition.starts_with("<=") {
-            if let Ok(n) = condition[2..].trim().parse::<usize>() {
+        } else if let Some(stripped) = condition.strip_prefix("<=") {
+            if let Ok(n) = stripped.trim().parse::<usize>() {
                 return count <= n;
             }
-        } else if condition.starts_with('>') {
-            if let Ok(n) = condition[1..].trim().parse::<usize>() {
+        } else if let Some(stripped) = condition.strip_prefix('>') {
+            if let Ok(n) = stripped.trim().parse::<usize>() {
                 return count > n;
             }
-        } else if condition.starts_with('<') {
-            if let Ok(n) = condition[1..].trim().parse::<usize>() {
+        } else if let Some(stripped) = condition.strip_prefix('<') {
+            if let Ok(n) = stripped.trim().parse::<usize>() {
                 return count < n;
             }
         }
