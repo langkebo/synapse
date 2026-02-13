@@ -430,9 +430,20 @@ pub struct Config {
 #[derive(Debug, Clone, Deserialize)]
 pub struct SearchConfig {
     /// Elasticsearch 服务器 URL
+    #[serde(default)]
     pub elasticsearch_url: String,
     /// 是否启用搜索功能
+    #[serde(default)]
     pub enabled: bool,
+}
+
+impl Default for SearchConfig {
+    fn default() -> Self {
+        Self {
+            elasticsearch_url: String::new(),
+            enabled: false,
+        }
+    }
 }
 
 /// 限流配置。
@@ -1180,6 +1191,7 @@ impl Config {
     }
 
     /// 替换配置文件中的环境变量格式 ${VARIABLE:default}
+    /// 智能处理类型：数字和布尔值不加引号，字符串加引号
     fn replace_env_variables(content: &str) -> String {
         let mut result = content.to_string();
         // 正则匹配 ${VARIABLE:default} 格式
@@ -1190,7 +1202,16 @@ impl Config {
             let default_value = capture.get(2).map(|m| m.as_str()).unwrap_or("");
             
             let value = std::env::var(var_name).unwrap_or_else(|_| default_value.to_string());
-            result = result.replace(&capture[0], &value);
+            
+            // 检查是否需要加引号
+            let needs_quotes = !is_yaml_primitive(&value);
+            let replacement = if needs_quotes {
+                format!("\"{}\"", value)
+            } else {
+                value
+            };
+            
+            result = result.replace(&capture[0], &replacement);
         }
         
         result
@@ -1212,34 +1233,103 @@ impl Config {
     }
 }
 
+/// 判断值是否为YAML原始类型（数字、布尔值、null）
+/// 原始类型不需要加引号，字符串需要加引号
+fn is_yaml_primitive(value: &str) -> bool {
+    // 检查是否为布尔值
+    if value == "true" || value == "false" {
+        return true;
+    }
+    
+    // 检查是否为null
+    if value == "null" || value == "~" {
+        return true;
+    }
+    
+    // 检查是否为整数
+    if value.parse::<i64>().is_ok() {
+        return true;
+    }
+    
+    // 检查是否为浮点数
+    if value.parse::<f64>().is_ok() {
+        return true;
+    }
+    
+    // 其他情况视为字符串
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_env_variable_replacement() {
-        // 测试基本环境变量替换
+        // 测试基本环境变量替换（字符串需要引号）
         let input = "name: ${TEST_VAR:default_value}";
         std::env::set_var("TEST_VAR", "test_value");
         let result = Config::replace_env_variables(input);
-        assert_eq!(result, "name: test_value");
+        assert_eq!(result, "name: \"test_value\"");
 
         // 测试默认值功能
         let input = "name: ${NON_EXISTENT_VAR:default_value}";
         let result = Config::replace_env_variables(input);
-        assert_eq!(result, "name: default_value");
+        assert_eq!(result, "name: \"default_value\"");
 
-        // 测试多个环境变量
-        let input = "name: ${VAR1:default1}, port: ${VAR2:default2}";
-        std::env::set_var("VAR1", "value1");
-        std::env::set_var("VAR2", "value2");
+        // 测试整数类型（不需要引号）
+        let input = "port: ${PORT:5432}";
         let result = Config::replace_env_variables(input);
-        assert_eq!(result, "name: value1, port: value2");
+        assert_eq!(result, "port: 5432");
+
+        // 测试布尔类型（不需要引号）
+        let input = "enabled: ${ENABLED:true}";
+        let result = Config::replace_env_variables(input);
+        assert_eq!(result, "enabled: true");
+
+        // 测试环境变量覆盖整数
+        std::env::set_var("CUSTOM_PORT", "8080");
+        let input = "port: ${CUSTOM_PORT:5432}";
+        let result = Config::replace_env_variables(input);
+        assert_eq!(result, "port: 8080");
+
+        // 测试环境变量覆盖布尔
+        std::env::set_var("CUSTOM_BOOL", "false");
+        let input = "enabled: ${CUSTOM_BOOL:true}";
+        let result = Config::replace_env_variables(input);
+        assert_eq!(result, "enabled: false");
 
         // 清理环境变量
         std::env::remove_var("TEST_VAR");
-        std::env::remove_var("VAR1");
-        std::env::remove_var("VAR2");
+        std::env::remove_var("CUSTOM_PORT");
+        std::env::remove_var("CUSTOM_BOOL");
+    }
+
+    #[test]
+    fn test_is_yaml_primitive() {
+        use super::is_yaml_primitive;
+        
+        // 测试布尔值
+        assert!(is_yaml_primitive("true"));
+        assert!(is_yaml_primitive("false"));
+
+        // 测试整数
+        assert!(is_yaml_primitive("123"));
+        assert!(is_yaml_primitive("-456"));
+        assert!(is_yaml_primitive("0"));
+
+        // 测试浮点数
+        assert!(is_yaml_primitive("3.14"));
+        assert!(is_yaml_primitive("-0.5"));
+
+        // 测试null
+        assert!(is_yaml_primitive("null"));
+        assert!(is_yaml_primitive("~"));
+
+        // 测试字符串（不是原始类型）
+        assert!(!is_yaml_primitive("hello"));
+        assert!(!is_yaml_primitive("default_value"));
+        assert!(!is_yaml_primitive("localhost"));
     }
 
     #[test]

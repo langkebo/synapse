@@ -16,6 +16,9 @@ COPY --from=binary /synapse-rust /usr/local/bin/synapse-rust
 # Copy migrations for database setup
 COPY migrations /app/migrations
 
+# Copy entrypoint script
+COPY docker/bin/entrypoint.sh /entrypoint.sh
+
 # Expose Matrix ports
 # 8008: Client API
 # 8448: Federation API
