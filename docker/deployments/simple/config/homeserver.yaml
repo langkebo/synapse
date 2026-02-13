@@ -1,118 +1,378 @@
 # ============================================================================
-# Synapse Rust Homeserver Configuration - Simple Deployment (No Monitoring)
+# Synapse Rust Homeserver 配置文件 - 简单部署版
 # ============================================================================
-# Server Configuration
-# - Server name: cjystx.top
-# - Server address: matrix.cjystx.top:8008
-# - User format: @user:cjystx.top
+# 
+# 本配置文件用于 Matrix 聊天服务器 (Synapse Rust 实现)
+# 适用于 1CPU 2GB 内存的小型服务器部署
+#
+# 配置文件功能说明:
+# 1. 服务器基础设置 - 服务器名称、端口、上传限制
+# 2. 数据库连接 - PostgreSQL 连接池配置
+# 3. 缓存设置 - Redis 缓存配置
+# 4. 日志配置 - 日志级别和输出格式
+# 5. 联邦功能 - 跨服务器通信配置
+# 6. 安全设置 - 密钥、Token 过期时间
+# 7. 速率限制 - API 请求频率控制
+# 8. 管理员注册 - 管理员账户创建
+# 9. CORS 配置 - 跨域资源共享
+# 10. SMTP 邮件 - 邮件验证和通知
+#
+# 环境变量说明:
+# - ${VAR_NAME:default} 格式表示使用环境变量，若无则使用默认值
+# - 生产环境请务必修改所有默认密码和密钥
+# ============================================================================
+
+# ============================================================================
+# 服务器配置 (Server Configuration)
+# ============================================================================
+# 功能说明:
+# - name: 服务器域名，用户ID格式为 @user:domain
+# - host: 监听地址，0.0.0.0 表示监听所有网卡
+# - port: 客户端 API 端口
+# - registration_shared_secret: 注册共享密钥，用于创建账户
+# - max_upload_size: 文件上传大小限制 (字节)
+# - enable_registration: 是否开放公开注册
 # ============================================================================
 
 server:
+  # 服务器域名 (必须修改为你的域名)
   name: "${SERVER_NAME:cjystx.top}"
+  
+  # 监听地址 (0.0.0.0 监听所有接口)
   host: "0.0.0.0"
+  
+  # 客户端 API 端口
   port: 8008
+  
+  # 注册共享密钥 (生产环境必须修改!)
+  # 用于通过 API 创建账户，执行: curl -X POST ... -d '{"username":"admin","password":"xxx"}'
   registration_shared_secret: "${REGISTRATION_SECRET:change_this_in_production_use_secure_random}"
+  
+  # 管理员联系邮箱
   admin_contact: "${ADMIN_EMAIL:admin@cjystx.top}"
+  
+  # 文件上传大小限制 (50MB)
   max_upload_size: 52428800
+  
+  # 图片最大分辨率
   max_image_resolution: 33554432
+  
+  # 是否允许公开注册 (生产环境建议关闭)
   enable_registration: ${ENABLE_REGISTRATION:true}
+  
+  # 是否启用注册验证码
   enable_registration_captcha: false
+  
+  # 后台任务执行间隔 (秒)
   background_tasks_interval: 60
+  
+  # 访问令牌过期设置
   expire_access_token: true
-  expire_access_token_lifetime: 3600
-  refresh_token_lifetime: 604800
-  refresh_token_sliding_window_size: 1000
-  session_duration: 86400
+  expire_access_token_lifetime: 3600        # 访问令牌有效期 (1小时)
+  refresh_token_lifetime: 604800            # 刷新令牌有效期 (7天)
+  refresh_token_sliding_window_size: 1000   # 滑动窗口大小
+  session_duration: 86400                   # 会话时长 (24小时)
+  
+  # 启动时预热连接池
   warmup_pool: true
 
+# ============================================================================
+# 数据库配置 (Database Configuration)
+# ============================================================================
+# 功能说明:
+# - PostgreSQL 数据库连接配置
+# - 连接池大小根据服务器内存调整
+# - 2GB 内存建议: pool_size=3, max_size=5
+# ============================================================================
+
 database:
+  # 数据库主机地址 (Docker 内使用服务名)
   host: "${DB_HOST:db}"
+  
+  # 数据库端口
   port: ${DB_PORT:5432}
+  
+  # 数据库用户名
   username: "${DB_USER:synapse}"
+  
+  # 数据库密码 (生产环境必须修改!)
   password: "${DB_PASSWORD:synapse}"
+  
+  # 数据库名称
   name: "${DB_NAME:synapse}"
-  pool_size: 5
-  max_size: 10
-  min_idle: 2
-  connection_timeout: 30
+  
+  # 连接池配置 (针对 2GB 内存优化)
+  pool_size: 3          # 初始连接数
+  max_size: 5           # 最大连接数
+  min_idle: 1           # 最小空闲连接数
+  connection_timeout: 30 # 连接超时 (秒)
+
+# ============================================================================
+# Redis 缓存配置 (Redis Configuration)
+# ============================================================================
+# 功能说明:
+# - 用于缓存用户会话、速率限制计数器
+# - 减少数据库查询压力
+# - 支持分布式部署
+# ============================================================================
 
 redis:
+  # Redis 主机地址
   host: "${REDIS_HOST:redis}"
+  
+  # Redis 端口
   port: ${REDIS_PORT:6379}
+  
+  # 缓存键前缀
   key_prefix: "synapse:${SERVER_NAME:cjystx.top}:"
-  pool_size: 5
+  
+  # 连接池大小
+  pool_size: 3
+  
+  # 是否启用 Redis
   enabled: true
+
+# ============================================================================
+# 日志配置 (Logging Configuration)
+# ============================================================================
+# 功能说明:
+# - level: 日志级别 (error/warn/info/debug/trace)
+# - format: 日志格式 (json/text)
+# - 生产环境建议使用 warn 级别减少日志量
+# ============================================================================
 
 logging:
+  # 日志级别 (生产环境建议 warn)
   level: "${RUST_LOG:warn}"
+  
+  # 日志格式 (json 便于日志收集)
   format: "json"
+  
+  # 日志文件路径 (空表示不写文件)
   log_file: ""
+  
+  # 日志目录
   log_dir: "/app/logs"
 
+# ============================================================================
+# 联邦配置 (Federation Configuration)
+# ============================================================================
+# 功能说明:
+# - 实现跨服务器通信，用户可以与其他 Matrix 服务器用户聊天
+# - federation_port: 联邦端口 (通常为 8448)
+# - signing_key: 服务器签名密钥 (必须保密!)
+# - 生产环境必须生成新的签名密钥
+# ============================================================================
+
 federation:
+  # 是否启用联邦功能
   enabled: true
+  
+  # 是否允许入站联邦请求
   allow_ingress: true
+  
+  # 服务器名称
   server_name: "${SERVER_NAME:cjystx.top}"
+  
+  # 联邦端口
   federation_port: 8448
-  connection_pool_size: 5
+  
+  # 联邦连接池大小
+  connection_pool_size: 3
+  
+  # 最大事务负载大小
   max_transaction_payload: 50000
+  
+  # 服务器签名密钥 (生产环境必须修改!)
+  # 生成命令: ./generate_test_keypair
   signing_key: "${SIGNING_KEY:5XVPWT8O/DyaXT17qJpUnEO5aRl1Cmevojx0+8uPYV8=}"
+  
+  # 密钥 ID
   key_id: "${KEY_ID:ed25519:testkb1OUw}"
+  
+  # CA 证书文件路径
   ca_file: ""
   client_ca_file: ""
 
+# ============================================================================
+# 安全配置 (Security Configuration)
+# ============================================================================
+# 功能说明:
+# - secret: JWT 签名密钥 (必须保密!)
+# - argon2: 密码哈希参数，影响密码安全性
+# - 生产环境必须修改所有密钥!
+# ============================================================================
+
 security:
+  # JWT 签名密钥 (生产环境必须修改!)
   secret: "${SECRET_KEY:e8f6e9a41bfb026417737b52359830aeacd8f54decb50af5697e97a13261f35d}"
+  
+  # Token 过期时间 (秒)
   expiry_time: 3600
+  
+  # 刷新令牌过期时间 (秒)
   refresh_token_expiry: 604800
+  
+  # Argon2 密码哈希参数 (内存成本)
   argon2_m_cost: 4096
+  
+  # Argon2 时间成本
   argon2_t_cost: 3
+  
+  # Argon2 并行度
   argon2_p_cost: 1
 
+# ============================================================================
+# 搜索配置 (Search Configuration)
+# ============================================================================
+# 功能说明:
+# - Elasticsearch 全文搜索 (可选)
+# - 未启用时使用数据库搜索
+# ============================================================================
+
 search:
+  # Elasticsearch URL (空表示禁用)
   elasticsearch_url: ""
+  
+  # 是否启用搜索
   enabled: false
+
+# ============================================================================
+# 速率限制配置 (Rate Limit Configuration)
+# ============================================================================
+# 功能说明:
+# - 防止 API 滥用和 DDoS 攻击
+# - per_second: 每秒请求数
+# - burst_size: 突发请求大小
+# ============================================================================
 
 rate_limit:
+  # 是否启用速率限制
   enabled: true
+  
+  # 默认限制
   default:
-    per_second: 10
-    burst_size: 20
+    per_second: 10     # 每秒 10 个请求
+    burst_size: 20     # 突发 20 个请求
+  
+  # 端点特定限制
   endpoints: []
+  
+  # IP 获取优先级 (反向代理场景)
   ip_header_priority: ["x-forwarded-for", "x-real-ip", "forwarded"]
+  
+  # 是否在响应头中包含限制信息
   include_headers: true
+  
+  # 豁免路径
   exempt_paths: []
   exempt_path_prefixes: []
+  
+  # 端点别名
   endpoint_aliases: {}
 
+# ============================================================================
+# 管理员注册配置 (Admin Registration Configuration)
+# ============================================================================
+# 功能说明:
+# - 通过共享密钥创建管理员账户
+# - 使用方法: POST /_synapse/admin/v1/register
+# ============================================================================
+
 admin_registration:
+  # 是否启用管理员注册
   enabled: true
+  
+  # 管理员注册共享密钥 (生产环境必须修改!)
   shared_secret: "${ADMIN_SECRET:test_shared_secret}"
+  
+  # Nonce 超时时间 (秒)
   nonce_timeout_seconds: 60
 
+# ============================================================================
+# Worker 配置 (Worker Configuration)
+# ============================================================================
+# 功能说明:
+# - 多进程部署配置 (简单部署禁用)
+# - 适用于高负载场景
+# ============================================================================
+
 worker:
+  # 是否启用 Worker 模式
   enabled: false
+  
+  # Worker 应用类型
   worker_app: ""
+  
+  # 指标端口
   metrics_port: 0
+  
+  # 健康检查端口
   health_port: 0
+  
+  # 复制端口
   replication_port: 0
 
+# ============================================================================
+# CORS 配置 (Cross-Origin Resource Sharing)
+# ============================================================================
+# 功能说明:
+# - 控制浏览器跨域请求
+# - allowed_origins: 允许的域名列表
+# - 生产环境建议限制为具体域名
+# ============================================================================
+
 cors:
+  # 允许的来源 (生产环境建议限制)
   allowed_origins: ["*"]
+  
+  # 是否允许携带凭证
   allow_credentials: false
+  
+  # 允许的 HTTP 方法
   allowed_methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+  
+  # 允许的请求头
   allowed_headers: ["Authorization", "Content-Type", "X-Requested-With"]
+  
+  # 预检请求缓存时间 (秒)
   max_age_seconds: 86400
 
+# ============================================================================
+# SMTP 邮件配置 (SMTP Configuration)
+# ============================================================================
+# 功能说明:
+# - 邮箱验证
+# - 密码重置
+# - 通知邮件
+# ============================================================================
+
 smtp:
+  # 是否启用 SMTP
   enabled: false
+  
+  # SMTP 服务器地址
   host: "localhost"
+  
+  # SMTP 端口
   port: 25
+  
+  # SMTP 用户名
   username: ""
+  
+  # SMTP 密码
   password: ""
+  
+  # 发件人地址
   from: "Matrix <noreply@cjystx.top>"
+  
+  # 是否启用 TLS
   tls: true
+  
+  # 验证令牌过期时间 (秒)
   verification_token_expire: 900
+  
+  # 邮件发送速率限制
   rate_limit:
     per_minute: 3
     per_hour: 10
