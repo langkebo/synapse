@@ -28,7 +28,7 @@ services:
   # 大小: 61.9MB (distroless 基础镜像)
   # ==========================================================================
   synapse-rust:
-    image: vmuser232922/synapse-rust:2.0
+    image: vmuser232922/synapse-rust:latest
     container_name: synapse-rust
     restart: unless-stopped
     ports:
