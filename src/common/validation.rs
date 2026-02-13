@@ -3,6 +3,7 @@ use crate::common::constants::*;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::OnceLock;
 use std::sync::Arc;
 
 pub type ValidationResult = Result<(), ValidationError>;
@@ -30,26 +31,86 @@ impl From<ValidationError> for ApiError {
     }
 }
 
+struct CachedRegex {
+    username: OnceLock<Regex>,
+    email: OnceLock<Regex>,
+    matrix_id: OnceLock<Regex>,
+    room_id: OnceLock<Regex>,
+    device_id: OnceLock<Regex>,
+    url: OnceLock<Regex>,
+}
+
+impl CachedRegex {
+    const fn new() -> Self {
+        Self {
+            username: OnceLock::new(),
+            email: OnceLock::new(),
+            matrix_id: OnceLock::new(),
+            room_id: OnceLock::new(),
+            device_id: OnceLock::new(),
+            url: OnceLock::new(),
+        }
+    }
+
+    fn username(&self) -> &Regex {
+        self.username.get_or_init(|| {
+            Regex::new(r"^[a-z0-9._=\-]{1,255}$").expect("Invalid username regex pattern")
+        })
+    }
+
+    fn email(&self) -> &Regex {
+        self.email.get_or_init(|| {
+            Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
+                .expect("Invalid email regex pattern")
+        })
+    }
+
+    fn matrix_id(&self) -> &Regex {
+        self.matrix_id.get_or_init(|| {
+            Regex::new(r"^@[a-z0-9._=\-]+:[a-zA-Z0-9.-]+$").expect("Invalid matrix_id regex pattern")
+        })
+    }
+
+    fn room_id(&self) -> &Regex {
+        self.room_id.get_or_init(|| {
+            Regex::new(r"^![a-zA-Z0-9._=\-]+:[a-zA-Z0-9.-]+$").expect("Invalid room_id regex pattern")
+        })
+    }
+
+    fn device_id(&self) -> &Regex {
+        self.device_id.get_or_init(|| {
+            Regex::new(r"^[a-zA-Z0-9._\-]{1,255}$").expect("Invalid device_id regex pattern")
+        })
+    }
+
+    fn url(&self) -> &Regex {
+        self.url.get_or_init(|| {
+            Regex::new(r"^https?://[a-zA-Z0-9.-]+(:[0-9]+)?(/.*)?$").expect("Invalid url regex pattern")
+        })
+    }
+}
+
+static CACHED_REGEX: CachedRegex = CachedRegex::new();
+
 #[derive(Debug, Clone)]
 pub struct Validator {
-    username_regex: Regex,
-    email_regex: Regex,
-    matrix_id_regex: Regex,
-    room_id_regex: Regex,
-    device_id_regex: Regex,
-    url_regex: Regex,
+    username_regex: &'static Regex,
+    email_regex: &'static Regex,
+    matrix_id_regex: &'static Regex,
+    room_id_regex: &'static Regex,
+    device_id_regex: &'static Regex,
+    url_regex: &'static Regex,
 }
 
 impl Validator {
     pub fn new() -> Result<Self, regex::Error> {
         Ok(Self {
-            // Matrix localpart: [a-z0-9._=-]+
-            username_regex: Regex::new(r"^[a-z0-9._=\-]{1,255}$")?,
-            email_regex: Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")?,
-            matrix_id_regex: Regex::new(r"^@[a-z0-9._=\-]+:[a-zA-Z0-9.-]+$")?,
-            room_id_regex: Regex::new(r"^![a-zA-Z0-9._=\-]+:[a-zA-Z0-9.-]+$")?,
-            device_id_regex: Regex::new(r"^[a-zA-Z0-9._\-]{1,255}$")?,
-            url_regex: Regex::new(r"^https?://[a-zA-Z0-9.-]+(:[0-9]+)?(/.*)?$")?,
+            username_regex: CACHED_REGEX.username(),
+            email_regex: CACHED_REGEX.email(),
+            matrix_id_regex: CACHED_REGEX.matrix_id(),
+            room_id_regex: CACHED_REGEX.room_id(),
+            device_id_regex: CACHED_REGEX.device_id(),
+            url_regex: CACHED_REGEX.url(),
         })
     }
 

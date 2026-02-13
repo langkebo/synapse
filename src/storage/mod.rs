@@ -8,6 +8,7 @@ pub mod event;
 pub mod external_service;
 pub mod friend_room;
 pub mod maintenance;
+pub mod media_storage;
 pub mod membership;
 pub mod monitoring;
 pub mod performance;
@@ -22,6 +23,7 @@ pub use self::event::*;
 pub use self::external_service::*;
 pub use self::friend_room::*;
 pub use self::maintenance::*;
+pub use self::media_storage::*;
 pub use self::membership::*;
 pub use self::monitoring::{
     ConnectionPoolStatus, DataIntegrityReport, DatabaseHealthStatus, DatabaseMonitor,

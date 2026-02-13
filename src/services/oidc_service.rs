@@ -1,6 +1,8 @@
 use crate::common::config::OidcConfig;
 use crate::common::error::ApiError;
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::debug;
@@ -17,6 +19,7 @@ pub struct OidcDiscoveryDocument {
     pub id_token_signing_alg_values_supported: Vec<String>,
     pub scopes_supported: Option<Vec<String>>,
     pub claims_supported: Option<Vec<String>>,
+    pub code_challenge_methods_supported: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,6 +51,7 @@ pub struct OidcAuthRequest {
     pub state: String,
     pub nonce: String,
     pub code_verifier: String,
+    pub code_challenge: String,
 }
 
 #[derive(Debug, Clone)]
@@ -56,6 +60,20 @@ pub struct OidcUser {
     pub localpart: String,
     pub displayname: Option<String>,
     pub email: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OidcIdTokenClaims {
+    pub iss: String,
+    pub sub: String,
+    pub aud: String,
+    pub exp: i64,
+    pub iat: i64,
+    pub nonce: Option<String>,
+    pub email: Option<String>,
+    pub email_verified: Option<bool>,
+    pub name: Option<String>,
+    pub preferred_username: Option<String>,
 }
 
 pub struct OidcService {
@@ -232,6 +250,168 @@ impl OidcService {
         (0..32).map(|_| rng.sample(rand::distributions::Alphanumeric) as char).collect()
     }
 
+    pub fn generate_code_verifier() -> String {
+        use rand::Rng;
+        let mut rng = rand::thread_rng();
+        (0..64).map(|_| rng.sample(rand::distributions::Alphanumeric) as char).collect()
+    }
+
+    pub fn generate_code_challenge(verifier: &str) -> String {
+        let mut hasher = Sha256::new();
+        hasher.update(verifier.as_bytes());
+        let hash = hasher.finalize();
+        URL_SAFE_NO_PAD.encode(hash)
+    }
+
+    pub fn generate_nonce() -> String {
+        use rand::Rng;
+        let mut rng = rand::thread_rng();
+        (0..32).map(|_| rng.sample(rand::distributions::Alphanumeric) as char).collect()
+    }
+
+    pub fn create_auth_request(&self, redirect_uri: &str) -> OidcAuthRequest {
+        let state = Self::generate_state();
+        let nonce = Self::generate_nonce();
+        let code_verifier = Self::generate_code_verifier();
+        let code_challenge = Self::generate_code_challenge(&code_verifier);
+
+        let scope = self.config.scopes.join(" ");
+        
+        let default_auth = format!("{}/authorize", self.config.issuer);
+        let auth_endpoint = self.config.authorization_endpoint.as_ref()
+            .or_else(|| self.discovery.as_ref().map(|d| &d.authorization_endpoint))
+            .map(|s| s.as_str())
+            .unwrap_or(&default_auth);
+
+        let mut url = url::Url::parse(auth_endpoint).unwrap();
+        {
+            let mut query = url.query_pairs_mut();
+            query.append_pair("client_id", &self.config.client_id);
+            query.append_pair("response_type", "code");
+            query.append_pair("scope", &scope);
+            query.append_pair("redirect_uri", redirect_uri);
+            query.append_pair("state", &state);
+            query.append_pair("nonce", &nonce);
+            query.append_pair("code_challenge", &code_challenge);
+            query.append_pair("code_challenge_method", "S256");
+        }
+
+        OidcAuthRequest {
+            url: url.to_string(),
+            state,
+            nonce,
+            code_verifier,
+            code_challenge,
+        }
+    }
+
+    pub async fn exchange_code_with_pkce(
+        &self,
+        code: &str,
+        redirect_uri: &str,
+        code_verifier: &str,
+    ) -> Result<OidcTokenResponse, ApiError> {
+        let default_token = format!("{}/token", self.config.issuer);
+        let token_endpoint = self.config.token_endpoint.as_ref()
+            .or_else(|| self.discovery.as_ref().map(|d| &d.token_endpoint))
+            .map(|s| s.as_str())
+            .unwrap_or(&default_token);
+
+        let params = [
+            ("grant_type", "authorization_code"),
+            ("code", code),
+            ("redirect_uri", redirect_uri),
+            ("client_id", &self.config.client_id),
+            ("code_verifier", code_verifier),
+        ];
+
+        let mut request = self.http_client.post(token_endpoint).form(&params);
+
+        if let Some(ref secret) = self.config.client_secret {
+            request = request.basic_auth(&self.config.client_id, Some(secret));
+        }
+
+        let response = request.send().await
+            .map_err(|e| ApiError::internal(format!("Token exchange failed: {}", e)))?;
+
+        if !response.status().is_success() {
+            let body = response.text().await.unwrap_or_default();
+            return Err(ApiError::internal(format!("Token exchange failed: {}", body)));
+        }
+
+        response.json().await
+            .map_err(|e| ApiError::internal(format!("Failed to parse token response: {}", e)))
+    }
+
+    pub fn decode_id_token_claims(&self, id_token: &str) -> Result<OidcIdTokenClaims, ApiError> {
+        let parts: Vec<&str> = id_token.split('.').collect();
+        if parts.len() != 3 {
+            return Err(ApiError::bad_request("Invalid ID token format"));
+        }
+
+        let payload = URL_SAFE_NO_PAD
+            .decode(parts[1])
+            .map_err(|e| ApiError::bad_request(format!("Failed to decode ID token: {}", e)))?;
+
+        let claims: OidcIdTokenClaims = serde_json::from_slice(&payload)
+            .map_err(|e| ApiError::bad_request(format!("Failed to parse ID token claims: {}", e)))?;
+
+        if claims.iss != self.config.issuer {
+            return Err(ApiError::bad_request("ID token issuer mismatch"));
+        }
+
+        if claims.aud != self.config.client_id {
+            return Err(ApiError::bad_request("ID token audience mismatch"));
+        }
+
+        let now = chrono::Utc::now().timestamp();
+        if claims.exp < now {
+            return Err(ApiError::bad_request("ID token has expired"));
+        }
+
+        Ok(claims)
+    }
+
+    pub fn validate_nonce(&self, claims: &OidcIdTokenClaims, expected_nonce: &str) -> Result<(), ApiError> {
+        if let Some(ref nonce) = claims.nonce {
+            if nonce != expected_nonce {
+                return Err(ApiError::bad_request("Nonce mismatch"));
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn refresh_token(&self, refresh_token: &str) -> Result<OidcTokenResponse, ApiError> {
+        let default_token = format!("{}/token", self.config.issuer);
+        let token_endpoint = self.config.token_endpoint.as_ref()
+            .or_else(|| self.discovery.as_ref().map(|d| &d.token_endpoint))
+            .map(|s| s.as_str())
+            .unwrap_or(&default_token);
+
+        let params = [
+            ("grant_type", "refresh_token"),
+            ("refresh_token", refresh_token),
+            ("client_id", &self.config.client_id),
+        ];
+
+        let mut request = self.http_client.post(token_endpoint).form(&params);
+
+        if let Some(ref secret) = self.config.client_secret {
+            request = request.basic_auth(&self.config.client_id, Some(secret));
+        }
+
+        let response = request.send().await
+            .map_err(|e| ApiError::internal(format!("Token refresh failed: {}", e)))?;
+
+        if !response.status().is_success() {
+            let body = response.text().await.unwrap_or_default();
+            return Err(ApiError::internal(format!("Token refresh failed: {}", body)));
+        }
+
+        response.json().await
+            .map_err(|e| ApiError::internal(format!("Failed to parse token response: {}", e)))
+    }
+
     pub fn get_config(&self) -> &OidcConfig {
         &self.config
     }
@@ -349,5 +529,51 @@ mod tests {
 
         let user = service.map_user(&user_info);
         assert_eq!(user.localpart, "user123");
+    }
+
+    #[test]
+    fn test_generate_code_verifier() {
+        let verifier = OidcService::generate_code_verifier();
+        assert_eq!(verifier.len(), 64);
+        assert!(verifier.chars().all(|c| c.is_alphanumeric()));
+    }
+
+    #[test]
+    fn test_generate_code_challenge() {
+        let verifier = "test_verifier_1234567890";
+        let challenge = OidcService::generate_code_challenge(verifier);
+        
+        assert!(!challenge.is_empty());
+        assert_ne!(challenge, verifier);
+    }
+
+    #[test]
+    fn test_generate_nonce() {
+        let nonce = OidcService::generate_nonce();
+        assert_eq!(nonce.len(), 32);
+        assert!(nonce.chars().all(|c| c.is_alphanumeric()));
+    }
+
+    #[test]
+    fn test_create_auth_request() {
+        let service = create_test_service();
+        let auth_request = service.create_auth_request("https://matrix.example.com/callback");
+        
+        assert!(auth_request.url.contains("client_id=test-client-id"));
+        assert!(auth_request.url.contains("response_type=code"));
+        assert!(auth_request.url.contains("code_challenge="));
+        assert!(auth_request.url.contains("code_challenge_method=S256"));
+        assert_eq!(auth_request.state.len(), 32);
+        assert_eq!(auth_request.nonce.len(), 32);
+        assert_eq!(auth_request.code_verifier.len(), 64);
+    }
+
+    #[test]
+    fn test_code_challenge_deterministic() {
+        let verifier = "test_verifier";
+        let challenge1 = OidcService::generate_code_challenge(verifier);
+        let challenge2 = OidcService::generate_code_challenge(verifier);
+        
+        assert_eq!(challenge1, challenge2);
     }
 }

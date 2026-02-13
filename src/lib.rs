@@ -1,3 +1,4 @@
+pub mod appservice;
 pub mod auth;
 pub mod cache;
 pub mod common;
@@ -5,9 +6,11 @@ pub mod e2ee;
 pub mod federation;
 pub mod server;
 pub mod services;
+pub mod spaces;
 pub mod storage;
 pub mod tasks;
 pub mod web;
+pub mod worker;
 
 #[allow(ambiguous_glob_reexports)]
 pub use auth::*;

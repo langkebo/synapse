@@ -1,0 +1,129 @@
+# ============================================================================
+# Synapse Rust Homeserver Configuration - Full Deployment
+# ============================================================================
+# Server Configuration
+# - Server name: cjystx.top
+# - Server address: matrix.cjystx.top:8008
+# - User format: @user:cjystx.top
+# ============================================================================
+
+server:
+  name: "${SERVER_NAME:cjystx.top}"
+  host: "0.0.0.0"
+  port: 8008
+  registration_shared_secret: "${REGISTRATION_SECRET:change_this_in_production_use_secure_random}"
+  admin_contact: "${ADMIN_EMAIL:admin@cjystx.top}"
+  max_upload_size: 52428800
+  max_image_resolution: 33554432
+  enable_registration: ${ENABLE_REGISTRATION:true}
+  enable_registration_captcha: false
+  background_tasks_interval: 60
+  expire_access_token: true
+  expire_access_token_lifetime: 3600
+  refresh_token_lifetime: 604800
+  refresh_token_sliding_window_size: 1000
+  session_duration: 86400
+  warmup_pool: true
+
+database:
+  host: "${DB_HOST:db}"
+  port: ${DB_PORT:5432}
+  username: "${DB_USER:synapse}"
+  password: "${DB_PASSWORD:synapse}"
+  name: "${DB_NAME:synapse}"
+  pool_size: 10
+  max_size: 20
+  min_idle: 5
+  connection_timeout: 30
+
+redis:
+  host: "${REDIS_HOST:redis}"
+  port: ${REDIS_PORT:6379}
+  key_prefix: "synapse:${SERVER_NAME:cjystx.top}:"
+  pool_size: 10
+  enabled: true
+
+logging:
+  level: "${RUST_LOG:info}"
+  format: "json"
+  log_file: ""
+  log_dir: "/app/logs"
+
+federation:
+  enabled: true
+  allow_ingress: true
+  server_name: "${SERVER_NAME:cjystx.top}"
+  federation_port: 8448
+  connection_pool_size: 10
+  max_transaction_payload: 50000
+  signing_key: "${SIGNING_KEY:5XVPWT8O/DyaXT17qJpUnEO5aRl1Cmevojx0+8uPYV8=}"
+  key_id: "${KEY_ID:ed25519:testkb1OUw}"
+  ca_file: ""
+  client_ca_file: ""
+
+security:
+  secret: "${SECRET_KEY:e8f6e9a41bfb026417737b52359830aeacd8f54decb50af5697e97a13261f35d}"
+  expiry_time: 3600
+  refresh_token_expiry: 604800
+  argon2_m_cost: 4096
+  argon2_t_cost: 3
+  argon2_p_cost: 1
+
+search:
+  elasticsearch_url: "${ELASTICSEARCH_URL:http://localhost:9200}"
+  enabled: ${ELASTICSEARCH_ENABLED:false}
+
+rate_limit:
+  enabled: true
+  default:
+    per_second: 10
+    burst_size: 20
+  endpoints: []
+  ip_header_priority: ["x-forwarded-for", "x-real-ip", "forwarded"]
+  include_headers: true
+  exempt_paths: []
+  exempt_path_prefixes: []
+  endpoint_aliases: {}
+
+admin_registration:
+  enabled: true
+  shared_secret: "${ADMIN_SECRET:test_shared_secret}"
+  nonce_timeout_seconds: 60
+
+worker:
+  enabled: false
+  worker_app: ""
+  metrics_port: 9091
+  health_port: 8080
+  replication_port: 0
+
+cors:
+  allowed_origins: ["*"]
+  allow_credentials: false
+  allowed_methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+  allowed_headers: ["Authorization", "Content-Type", "X-Requested-With"]
+  max_age_seconds: 86400
+
+smtp:
+  enabled: ${SMTP_ENABLED:false}
+  host: "${SMTP_HOST:localhost}"
+  port: ${SMTP_PORT:25}
+  username: "${SMTP_USER:}"
+  password: "${SMTP_PASSWORD:}"
+  from: "${SMTP_FROM:Matrix <noreply@cjystx.top>}"
+  tls: true
+  verification_token_expire: 900
+  rate_limit:
+    per_minute: 3
+    per_hour: 10
+
+metrics:
+  enabled: true
+  port: 9091
+  path: "/metrics"
+  collect_interval: 15
+
+tracing:
+  enabled: true
+  jaeger_endpoint: "http://jaeger:14268/api/traces"
+  sample_rate: 0.1

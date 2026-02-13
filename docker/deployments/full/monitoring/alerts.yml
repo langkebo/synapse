@@ -1,0 +1,182 @@
+# ============================================================================
+# Prometheus Alert Rules for Synapse Rust
+# ============================================================================
+
+groups:
+  # ==========================================================================
+  # Synapse Application Alerts
+  # ==========================================================================
+  - name: synapse_alerts
+    rules:
+      - alert: SynapseDown
+        expr: up{job="synapse-rust"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Synapse Rust is down"
+          description: "Synapse Rust instance has been down for more than 1 minute."
+
+      - alert: SynapseHighLatency
+        expr: histogram_quantile(0.95, rate(synapse_request_duration_seconds_bucket[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High request latency"
+          description: "95th percentile latency is above 1 second."
+
+      - alert: SynapseHighErrorRate
+        expr: rate(synapse_http_requests_total{status=~"5.."}[5m]) / rate(synapse_http_requests_total[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High error rate"
+          description: "Error rate is above 5%."
+
+      - alert: SynapseMemoryHigh
+        expr: process_resident_memory_bytes{job="synapse-rust"} > 800000000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage"
+          description: "Memory usage is above 800MB."
+
+      - alert: SynapseFederationQueueBacklog
+        expr: synapse_federation_queue_size > 1000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Federation queue backlog"
+          description: "Federation queue has more than 1000 pending items."
+
+  # ==========================================================================
+  # Database Alerts
+  # ==========================================================================
+  - name: database_alerts
+    rules:
+      - alert: PostgresDown
+        expr: up{job="postgres"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL is down"
+          description: "PostgreSQL database is unreachable."
+
+      - alert: PostgresTooManyConnections
+        expr: pg_stat_activity_count / pg_settings_max_connections > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Too many PostgreSQL connections"
+          description: "PostgreSQL connection usage is above 80%."
+
+      - alert: PostgresReplicationLag
+        expr: pg_replication_lag_seconds > 30
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PostgreSQL replication lag"
+          description: "Replication lag is above 30 seconds."
+
+  # ==========================================================================
+  # Redis Alerts
+  # ==========================================================================
+  - name: redis_alerts
+    rules:
+      - alert: RedisDown
+        expr: up{job="redis"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis is down"
+          description: "Redis cache is unreachable."
+
+      - alert: RedisMemoryHigh
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis memory high"
+          description: "Redis memory usage is above 90%."
+
+      - alert: RedisTooManyConnections
+        expr: redis_connected_clients > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Too many Redis connections"
+          description: "Redis has more than 100 connected clients."
+
+  # ==========================================================================
+  # System Alerts
+  # ==========================================================================
+  - name: system_alerts
+    rules:
+      - alert: HighCPUUsage
+        expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage"
+          description: "CPU usage is above 80%."
+
+      - alert: HighMemoryUsage
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage"
+          description: "Memory usage is above 85%."
+
+      - alert: DiskSpaceLow
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 < 10
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Low disk space"
+          description: "Disk space is below 10%."
+
+      - alert: DiskSpaceWarning
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 < 20
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Disk space warning"
+          description: "Disk space is below 20%."
+
+  # ==========================================================================
+  # Container Alerts
+  # ==========================================================================
+  - name: container_alerts
+    rules:
+      - alert: ContainerRestartingFrequently
+        expr: increase(container_restart_count[1h]) > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Container restarting frequently"
+          description: "Container {{ $labels.name }} has restarted more than 5 times in the last hour."
+
+      - alert: ContainerHighMemory
+        expr: container_memory_usage_bytes / container_spec_memory_limit_bytes > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Container high memory"
+          description: "Container {{ $labels.name }} is using more than 90% of its memory limit."

@@ -1,3 +1,4 @@
+pub mod audit;
 pub mod background_job;
 pub mod collections;
 pub mod concurrency;
@@ -12,10 +13,13 @@ pub mod health;
 pub mod logging;
 pub mod macros;
 pub mod metrics;
+pub mod modules;
 pub mod rate_limit;
 pub mod regex_cache;
+pub mod streaming;
 pub mod task_queue;
 pub mod tracing;
+pub mod tracing_ext;
 pub mod transaction;
 pub mod types;
 pub mod validation;

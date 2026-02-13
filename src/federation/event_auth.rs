@@ -78,9 +78,10 @@ impl EventAuthChain {
         events: &HashMap<String, EventData>,
         event_id: &str,
     ) -> Vec<String> {
-        let mut visited = HashSet::new();
-        let mut auth_chain = Vec::new();
-        let mut queue = VecDeque::new();
+        let estimated_size = events.len().min(100);
+        let mut visited = HashSet::with_capacity(estimated_size);
+        let mut auth_chain = Vec::with_capacity(estimated_size);
+        let mut queue = VecDeque::with_capacity(estimated_size);
 
         queue.push_back(event_id.to_string());
 
@@ -139,15 +140,16 @@ impl EventAuthChain {
     }
 
     pub fn calculate_event_depth(&self, events: &[EventInfo]) -> HashMap<String, i64> {
-        let mut event_map: HashMap<String, &EventInfo> = HashMap::new();
-        let mut in_degree: HashMap<String, i64> = HashMap::new();
-        let mut graph: HashMap<String, Vec<String>> = HashMap::new();
+        let capacity = events.len();
+        let mut event_map: HashMap<String, &EventInfo> = HashMap::with_capacity(capacity);
+        let mut in_degree: HashMap<String, i64> = HashMap::with_capacity(capacity);
+        let mut graph: HashMap<String, Vec<String>> = HashMap::with_capacity(capacity);
 
         for event in events {
             let event_id = &event.event_id;
             event_map.insert(event_id.clone(), event);
             in_degree.insert(event_id.clone(), 0);
-            graph.insert(event_id.clone(), Vec::new());
+            graph.insert(event_id.clone(), Vec::with_capacity(2));
         }
 
         for event in events {
@@ -201,8 +203,9 @@ impl EventAuthChain {
     }
 
     pub fn detect_conflicts(&self, state_events: &[Value]) -> Vec<ConflictInfo> {
-        let mut conflicts = Vec::new();
-        let mut state_by_key: HashMap<String, Vec<(i64, String)>> = HashMap::new();
+        let capacity = state_events.len().min(100);
+        let mut conflicts = Vec::with_capacity(capacity);
+        let mut state_by_key: HashMap<String, Vec<(i64, String)>> = HashMap::with_capacity(capacity);
 
         for event in state_events {
             let event_type = event.get("type").and_then(|v| v.as_str()).unwrap_or("");

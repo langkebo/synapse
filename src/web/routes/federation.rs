@@ -481,7 +481,7 @@ async fn send_transaction(
         .and_then(|v| v.as_array())
         .ok_or_else(|| ApiError::bad_request("PDUs required".to_string()))?;
 
-    let mut results = Vec::new();
+    let mut results = Vec::with_capacity(pdus.len());
 
     for pdu in pdus {
         let event_id = pdu
@@ -1002,9 +1002,10 @@ async fn get_public_rooms(
 fn topological_sort(pdus: &mut Vec<Value>) {
     use std::collections::{HashMap, VecDeque};
 
-    let mut graph: HashMap<String, Vec<usize>> = HashMap::new();
-    let mut in_degree: Vec<usize> = vec![0; pdus.len()];
-    let mut event_id_to_idx: HashMap<String, usize> = HashMap::new();
+    let pdu_count = pdus.len();
+    let mut graph: HashMap<String, Vec<usize>> = HashMap::with_capacity(pdu_count);
+    let mut in_degree: Vec<usize> = vec![0; pdu_count];
+    let mut event_id_to_idx: HashMap<String, usize> = HashMap::with_capacity(pdu_count);
 
     for (i, pdu) in pdus.iter().enumerate() {
         if let Some(event_id) = pdu.get("event_id").and_then(|v| v.as_str()) {
@@ -1025,14 +1026,14 @@ fn topological_sort(pdus: &mut Vec<Value>) {
         }
     }
 
-    let mut queue = VecDeque::new();
+    let mut queue = VecDeque::with_capacity(pdu_count);
     for (i, &degree) in in_degree.iter().enumerate() {
         if degree == 0 {
             queue.push_back(i);
         }
     }
 
-    let mut sorted_indices = Vec::new();
+    let mut sorted_indices = Vec::with_capacity(pdu_count);
     while let Some(u) = queue.pop_front() {
         sorted_indices.push(u);
         if let Some(event_id) = pdus[u].get("event_id").and_then(|v| v.as_str()) {
