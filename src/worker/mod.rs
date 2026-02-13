@@ -6,10 +6,12 @@ use tokio::sync::{broadcast, mpsc, RwLock};
 use tracing::info;
 
 pub mod handlers;
+pub mod load_balancer;
 pub mod replication;
 pub mod scheduler;
 pub mod types;
 
+pub use load_balancer::*;
 pub use replication::*;
 pub use types::*;
 
