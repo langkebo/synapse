@@ -9,13 +9,14 @@
 # 1. 服务器基础设置 - 服务器名称、端口、上传限制
 # 2. 数据库连接 - PostgreSQL 连接池配置
 # 3. 缓存设置 - Redis 缓存配置
-# 4. 日志配置 - 日志级别和输出格式
-# 5. 联邦功能 - 跨服务器通信配置
-# 6. 安全设置 - 密钥、Token 过期时间
-# 7. 速率限制 - API 请求频率控制
-# 8. 管理员注册 - 管理员账户创建
-# 9. CORS 配置 - 跨域资源共享
-# 10. SMTP 邮件 - 邮件验证和通知
+# 4. 媒体存储 - 媒体文件存储路径
+# 5. 日志配置 - 日志级别和输出格式
+# 6. 联邦功能 - 跨服务器通信配置
+# 7. 安全设置 - 密钥、Token 过期时间
+# 8. 速率限制 - API 请求频率控制
+# 9. 管理员注册 - 管理员账户创建
+# 10. CORS 配置 - 跨域资源共享
+# 11. SMTP 邮件 - 邮件验证和通知
 #
 # 环境变量说明:
 # - ${VAR_NAME:default} 格式表示使用环境变量，若无则使用默认值
@@ -108,6 +109,64 @@ database:
   connection_timeout: 30 # 连接超时 (秒)
 
 # ============================================================================
+# 媒体存储配置 (Media Storage Configuration)
+# ============================================================================
+# 功能说明:
+# - 媒体文件存储路径配置
+# - 支持本地存储和远程存储
+# - 包含上传、缩略图、缓存目录
+# ============================================================================
+
+media:
+  # 是否启用媒体服务
+  enabled: true
+  
+  # 媒体存储根目录
+  media_store_path: "/app/data/media"
+  
+  # 上传临时目录
+  uploads_path: "/app/data/uploads"
+  
+  # 缩略图存储目录
+  thumbnails_path: "/app/data/thumbnails"
+  
+  # 缓存目录
+  cache_path: "/app/data/cache"
+  
+  # 最大上传大小 (字节) - 与 server.max_upload_size 保持一致
+  max_upload_size: 52428800
+  
+  # 最大图片像素
+  max_image_pixels: 33554432
+  
+  # 是否生成预览
+  generate_thumbnails: true
+  
+  # 缩略图尺寸配置
+  thumbnail_sizes:
+    - width: 32
+      height: 32
+      method: "crop"
+    - width: 96
+      height: 96
+      method: "crop"
+    - width: 320
+      height: 240
+      method: "scale"
+    - width: 640
+      height: 480
+      method: "scale"
+    - width: 800
+      height: 600
+      method: "scale"
+  
+  # 动态缩略图
+  dynamic_thumbnails: false
+  
+  # 最大缩略图像素
+  max_thumbnail_pixels: 33554432
+
+# ============================================================================
 # Redis 缓存配置 (Redis Configuration)
 # ============================================================================
 # 功能说明:
@@ -183,6 +242,9 @@ federation:
   # 最大事务负载大小
   max_transaction_payload: 50000
   
+  # 签名密钥存储目录
+  signing_key_path: "/app/data/keys"
+  
   # 服务器签名密钥 (生产环境必须修改!)
   # 生成命令: ./generate_test_keypair
   signing_key: "${SIGNING_KEY:5XVPWT8O/DyaXT17qJpUnEO5aRl1Cmevojx0+8uPYV8=}"
@@ -193,6 +255,12 @@ federation:
   # CA 证书文件路径
   ca_file: ""
   client_ca_file: ""
+  
+  # 联邦客户端超时设置
+  client_timeout: 60
+  
+  # 最大联邦事件数
+  max_events_per_transaction: 50
 
 # ============================================================================
 # 安全配置 (Security Configuration)
@@ -376,3 +444,27 @@ smtp:
   rate_limit:
     per_minute: 3
     per_hour: 10
+
+# ============================================================================
+# 消息保留策略 (Message Retention Policy)
+# ============================================================================
+# 功能说明:
+# - 控制消息保留时间
+# - 自动清理过期消息
+# ============================================================================
+
+retention:
+  # 是否启用消息保留
+  enabled: true
+  
+  # 默认保留策略 (天)
+  default_policy: 365
+  
+  # 允许的最小保留时间 (天)
+  min_lifetime: 1
+  
+  # 允许的最大保留时间 (天)
+  max_lifetime: 3650
+  
+  # 清理间隔 (秒)
+  purge_interval: 86400

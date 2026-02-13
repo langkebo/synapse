@@ -461,9 +461,11 @@ mod tests {
 
     #[test]
     fn test_manhole_config_validate() {
-        let mut config = ManholeConfig::default();
-        config.enabled = true;
-        config.username = String::new();
+        let config = ManholeConfig {
+            enabled: true,
+            username: String::new(),
+            ..Default::default()
+        };
         
         let result = config.validate();
         assert!(result.is_err());

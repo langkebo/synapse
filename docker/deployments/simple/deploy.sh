@@ -55,9 +55,36 @@ check_docker_compose() {
 # 创建必要目录
 create_directories() {
     print_info "创建必要目录..."
-    mkdir -p data logs ssl
+    
+    # 数据目录
+    mkdir -p data
+    mkdir -p data/media
+    mkdir -p data/uploads
+    mkdir -p data/thumbnails
+    mkdir -p data/cache
+    mkdir -p data/keys
+    
+    # 日志目录
+    mkdir -p logs
     mkdir -p logs/nginx
+    
+    # SSL 目录
+    mkdir -p ssl
+    
     print_success "目录创建完成"
+    
+    echo ""
+    echo "目录结构:"
+    echo "  data/           - 数据目录"
+    echo "  data/media/     - 媒体文件存储"
+    echo "  data/uploads/   - 上传临时文件"
+    echo "  data/thumbnails/ - 缩略图存储"
+    echo "  data/cache/     - 缓存目录"
+    echo "  data/keys/      - 签名密钥存储"
+    echo "  logs/           - 日志目录"
+    echo "  logs/nginx/     - Nginx 日志"
+    echo "  ssl/            - SSL 证书"
+    echo ""
 }
 
 # 生成随机密钥
@@ -176,6 +203,11 @@ show_next_steps() {
     echo "4. 访问服务:"
     echo "   客户端 API: http://\$SERVER_NAME:8008"
     echo "   联邦 API: https://\$SERVER_NAME:8448"
+    echo ""
+    echo "5. 目录说明:"
+    echo "   data/media/     - 媒体文件存储"
+    echo "   data/keys/      - 签名密钥存储"
+    echo "   logs/           - 日志文件"
     echo ""
 }
 

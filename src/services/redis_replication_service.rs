@@ -60,7 +60,7 @@ impl ReplicationChannel {
         }
     }
 
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse_from_str(s: &str) -> Option<Self> {
         match s {
             "events" => Some(ReplicationChannel::Events),
             "presence" => Some(ReplicationChannel::Presence),
@@ -389,8 +389,8 @@ mod tests {
     #[test]
     fn test_replication_channel() {
         assert_eq!(ReplicationChannel::Events.as_str(), "events");
-        assert_eq!(ReplicationChannel::from_str("events"), Some(ReplicationChannel::Events));
-        assert_eq!(ReplicationChannel::from_str("invalid"), None);
+        assert_eq!(ReplicationChannel::parse_from_str("events"), Some(ReplicationChannel::Events));
+        assert_eq!(ReplicationChannel::parse_from_str("invalid"), None);
     }
 
     #[test]

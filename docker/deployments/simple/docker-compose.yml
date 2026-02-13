@@ -42,8 +42,18 @@ services:
       - SECRET_KEY=${SECRET_KEY:-change_this_in_production}
       - SYNAPSE_CONFIG_PATH=/app/config/homeserver.yaml
     volumes:
+      # 数据目录 (包含媒体、密钥等)
       - ./data:/app/data
+      # 媒体存储目录
+      - ./data/media:/app/data/media
+      - ./data/uploads:/app/data/uploads
+      - ./data/thumbnails:/app/data/thumbnails
+      - ./data/cache:/app/data/cache
+      # 签名密钥目录
+      - ./data/keys:/app/data/keys
+      # 日志目录
       - ./logs:/app/logs
+      # 配置文件
       - ./config:/app/config:ro
     depends_on:
       db:
@@ -181,6 +191,8 @@ services:
       - ./nginx/.well-known:/var/www/html/.well-known:ro
       - ./ssl:/etc/nginx/ssl:ro
       - ./logs/nginx:/var/log/nginx
+      # 媒体文件代理 (可选)
+      - ./data/media:/var/www/media:ro
     depends_on:
       synapse-rust:
         condition: service_healthy

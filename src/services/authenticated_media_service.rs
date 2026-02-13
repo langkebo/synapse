@@ -27,7 +27,7 @@ impl AuthenticatedMediaType {
         }
     }
 
-    pub fn from_str(s: &str) -> Self {
+    pub fn parse_from_str(s: &str) -> Self {
         match s {
             "avatar" => AuthenticatedMediaType::Avatar,
             "profile" => AuthenticatedMediaType::Profile,
@@ -169,6 +169,7 @@ impl AuthenticatedMediaService {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn register_media(
         &self,
         media_id: &str,

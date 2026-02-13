@@ -190,6 +190,7 @@ impl AuditLogger {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn log_event(
         &self,
         user_id: Option<String>,

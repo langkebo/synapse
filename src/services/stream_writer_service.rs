@@ -38,7 +38,7 @@ impl StreamType {
         }
     }
 
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse_from_str(s: &str) -> Option<Self> {
         match s {
             "events" => Some(StreamType::Events),
             "account_data" => Some(StreamType::AccountData),
@@ -347,8 +347,8 @@ mod tests {
     #[test]
     fn test_stream_type() {
         assert_eq!(StreamType::Events.as_str(), "events");
-        assert_eq!(StreamType::from_str("events"), Some(StreamType::Events));
-        assert_eq!(StreamType::from_str("invalid"), None);
+        assert_eq!(StreamType::parse_from_str("events"), Some(StreamType::Events));
+        assert_eq!(StreamType::parse_from_str("invalid"), None);
     }
 
     #[test]

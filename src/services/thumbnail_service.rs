@@ -79,6 +79,7 @@ pub struct ThumbnailMetadata {
 }
 
 impl ThumbnailMetadata {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         media_id: String,
         size_name: String,

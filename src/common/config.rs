@@ -1162,13 +1162,38 @@ impl Config {
         let config_path = std::env::var("SYNAPSE_CONFIG_PATH")
             .unwrap_or_else(|_| "/app/config/homeserver.yaml".to_string());
 
+        // 读取文件内容并替换环境变量
+        let content = std::fs::read_to_string(&config_path)?;
+        let processed_content = Self::replace_env_variables(&content);
+
+        // 写入临时文件
+        let temp_path = "/tmp/homeserver_processed.yaml";
+        std::fs::write(temp_path, processed_content)?;
+
         let config = ConfigBuilder::builder()
-            .add_source(config::File::with_name(&config_path))
+            .add_source(config::File::with_name(temp_path))
             .add_source(config::Environment::with_prefix("SYNAPSE"))
             .build()?;
 
         let config_values: Config = config.try_deserialize()?;
         Ok(config_values)
+    }
+
+    /// 替换配置文件中的环境变量格式 ${VARIABLE:default}
+    fn replace_env_variables(content: &str) -> String {
+        let mut result = content.to_string();
+        // 正则匹配 ${VARIABLE:default} 格式
+        let regex = regex::Regex::new(r"\$\{([^}:]+)(?::([^}]+))?\}").unwrap();
+        
+        for capture in regex.captures_iter(content) {
+            let var_name = &capture[1];
+            let default_value = capture.get(2).map(|m| m.as_str()).unwrap_or("");
+            
+            let value = std::env::var(var_name).unwrap_or_else(|_| default_value.to_string());
+            result = result.replace(&capture[0], &value);
+        }
+        
+        result
     }
 
     pub fn database_url(&self) -> String {
@@ -1190,6 +1215,32 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_env_variable_replacement() {
+        // 测试基本环境变量替换
+        let input = "name: ${TEST_VAR:default_value}";
+        std::env::set_var("TEST_VAR", "test_value");
+        let result = Config::replace_env_variables(input);
+        assert_eq!(result, "name: test_value");
+
+        // 测试默认值功能
+        let input = "name: ${NON_EXISTENT_VAR:default_value}";
+        let result = Config::replace_env_variables(input);
+        assert_eq!(result, "name: default_value");
+
+        // 测试多个环境变量
+        let input = "name: ${VAR1:default1}, port: ${VAR2:default2}";
+        std::env::set_var("VAR1", "value1");
+        std::env::set_var("VAR2", "value2");
+        let result = Config::replace_env_variables(input);
+        assert_eq!(result, "name: value1, port: value2");
+
+        // 清理环境变量
+        std::env::remove_var("TEST_VAR");
+        std::env::remove_var("VAR1");
+        std::env::remove_var("VAR2");
+    }
 
     #[test]
     fn test_config_database_url() {
