@@ -451,6 +451,7 @@ impl PresenceStorage {
     }
 }
 
+pub mod admin_api_v2_service;
 pub mod admin_registration_service;
 pub mod authenticated_media_service;
 pub mod background_update_service;
@@ -461,6 +462,7 @@ pub mod database_initializer;
 pub mod event_persister_service;
 pub mod federation_sender_service;
 pub mod friend_room_service;
+pub mod guest_access_service;
 pub mod jwt_service;
 pub mod knock_service;
 pub mod manhole_service;
@@ -471,6 +473,7 @@ pub mod phone_verification_service;
 pub mod push_rule_evaluator;
 pub mod push_service;
 pub mod read_receipt_service;
+pub mod redis_replication_service;
 pub mod registration_service;
 pub mod registration_token_service;
 pub mod retention_service;
@@ -486,6 +489,7 @@ pub mod url_preview_service;
 pub mod voice_service;
 pub mod voip_service;
 
+pub use admin_api_v2_service::*;
 pub use admin_registration_service::*;
 pub use authenticated_media_service::*;
 pub use background_update_service::*;
@@ -496,6 +500,7 @@ pub use database_initializer::*;
 pub use event_persister_service::*;
 pub use federation_sender_service::*;
 pub use friend_room_service::*;
+pub use guest_access_service::*;
 pub use jwt_service::*;
 pub use knock_service::*;
 pub use manhole_service::*;
@@ -506,6 +511,7 @@ pub use phone_verification_service::*;
 pub use push_rule_evaluator::*;
 pub use push_service::*;
 pub use read_receipt_service::*;
+pub use redis_replication_service::*;
 pub use registration_service::*;
 pub use registration_token_service::*;
 pub use retention_service::*;
