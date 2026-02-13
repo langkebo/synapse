@@ -1,0 +1,57 @@
+# Synapse Rust - Multi-Architecture Production Dockerfile
+# Supports: linux/amd64, linux/arm64
+# Uses pre-built binary with minimal base image
+
+# Stage 1: Build stage (uses cached dependencies)
+FROM rust:1.75-bookworm AS builder
+
+WORKDIR /app
+
+# Copy manifests first for better caching
+COPY Cargo.toml Cargo.lock ./
+COPY src ./src
+COPY migrations ./migrations
+
+# Build release binary
+RUN cargo build --release
+
+# Stage 2: Runtime stage using Alpine (smaller, no apt needed)
+FROM alpine:3.19
+
+WORKDIR /app
+
+# Install minimal runtime dependencies using apk (more reliable)
+RUN apk add --no-cache \
+    ca-certificates \
+    libgcc \
+    && rm -rf /var/cache/apk/*
+
+# Copy binary from builder
+COPY --from=builder /app/target/release/synapse-rust /usr/local/bin/synapse-rust
+
+# Create necessary directories
+RUN mkdir -p /app/data /app/config /app/logs /app/migrations
+
+# Copy migrations
+COPY migrations /app/migrations
+
+# Expose Matrix ports
+EXPOSE 8008 8448
+
+# Environment variables
+ENV RUST_LOG=info \
+    RUST_BACKTRACE=1 \
+    SYNAPSE_CONFIG_PATH=/app/config/homeserver.yaml
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:8008/health || exit 1
+
+# Default command
+CMD ["/usr/local/bin/synapse-rust"]
+
+# Labels for container metadata
+LABEL org.opencontainers.image.title="Synapse Rust" \
+      org.opencontainers.image.description="Matrix homeserver implementation in Rust" \
+      org.opencontainers.image.version="2.0" \
+      org.opencontainers.image.vendor="Synapse Rust Project"

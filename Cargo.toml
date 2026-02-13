@@ -119,6 +119,7 @@ debug = true
 
 [[bench]]
 name = "database_bench"
+path = "benches/database_bench.rs"
 harness = false
 
 [workspace]
