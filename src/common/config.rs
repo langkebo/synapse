@@ -427,7 +427,7 @@ pub struct Config {
 }
 
 /// 搜索服务配置。
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct SearchConfig {
     /// Elasticsearch 服务器 URL
     #[serde(default)]
@@ -435,15 +435,6 @@ pub struct SearchConfig {
     /// 是否启用搜索功能
     #[serde(default)]
     pub enabled: bool,
-}
-
-impl Default for SearchConfig {
-    fn default() -> Self {
-        Self {
-            elasticsearch_url: String::new(),
-            enabled: false,
-        }
-    }
 }
 
 /// 限流配置。
