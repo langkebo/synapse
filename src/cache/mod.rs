@@ -708,8 +708,8 @@ mod tests {
             user_id: "@test:example.com".to_string(),
             admin: false,
             device_id: Some("DEVICE123".to_string()),
-            exp: 1234567890,
-            iat: 1234567890,
+            exp: 1_234_567_890,
+            iat: 1_234_567_890,
         };
 
         manager.set_token("test_token", &claims, 3600).await;

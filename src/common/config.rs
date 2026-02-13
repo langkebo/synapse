@@ -99,9 +99,9 @@ fn parse_duration(s: &str) -> Option<i64> {
     } else if let Some(stripped) = s.strip_suffix('h') {
         (stripped, 3600i64)
     } else if let Some(stripped) = s.strip_suffix('d') {
-        (stripped, 86400i64)
+        (stripped, 86_400i64)
     } else if let Some(stripped) = s.strip_suffix('w') {
-        (stripped, 604800i64)
+        (stripped, 604_800i64)
     } else {
         (s, 1i64)
     };

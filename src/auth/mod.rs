@@ -578,8 +578,8 @@ mod tests {
             sub: "@test:example.com".to_string(),
             user_id: "@test:example.com".to_string(),
             admin: false,
-            exp: 1234567890,
-            iat: 1234567889,
+            exp: 1_234_567_890,
+            iat: 1_234_567_889,
             device_id: Some("DEVICE123".to_string()),
         };
         assert_eq!(claims.sub, "@test:example.com");
@@ -594,8 +594,8 @@ mod tests {
             sub: "@admin:example.com".to_string(),
             user_id: "@admin:example.com".to_string(),
             admin: true,
-            exp: 1234567890,
-            iat: 1234567890,
+            exp: 1_234_567_890,
+            iat: 1_234_567_890,
             device_id: None,
         };
         assert!(claims.admin);
@@ -624,8 +624,8 @@ mod tests {
             sub: "@test:example.com".to_string(),
             user_id: "@test:example.com".to_string(),
             admin: false,
-            exp: 1234567890,
-            iat: 1234567890,
+            exp: 1_234_567_890,
+            iat: 1_234_567_890,
             device_id: Some("DEVICE123".to_string()),
         };
         let json = serde_json::to_string(&claims).unwrap();
