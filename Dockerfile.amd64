@@ -2,14 +2,26 @@
 # Uses pre-built binary with distroless base (no network needed)
 
 # Stage 1: Build stage
-FROM rust:1.82-bookworm AS builder
+FROM rust:latest AS builder
 
 WORKDIR /app
+
+# Clear proxy settings that might interfere with network access
+ENV HTTP_PROXY= \
+    HTTPS_PROXY= \
+    http_proxy= \
+    https_proxy= \
+    ALL_PROXY= \
+    all_proxy= \
+    NO_PROXY= \
+    no_proxy= \
+    CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
 
 # Copy manifests first for better caching
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 COPY migrations ./migrations
+COPY .sqlx ./.sqlx
 
 # Build release binary for AMD64
 RUN cargo build --release
