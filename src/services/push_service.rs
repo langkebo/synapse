@@ -1,9 +1,13 @@
 use crate::common::config::PushConfig;
 use crate::common::error::ApiError;
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
+use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 
+/// Push notification data
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PushNotification {
     pub event_id: String,
@@ -14,12 +18,23 @@ pub struct PushNotification {
     pub counts: NotificationCounts,
 }
 
+/// Notification counts
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NotificationCounts {
     pub unread: u32,
     pub missed_calls: u32,
 }
 
+impl Default for NotificationCounts {
+    fn default() -> Self {
+        Self {
+            unread: 0,
+            missed_calls: 0,
+        }
+    }
+}
+
+/// Push device registration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PushDevice {
     pub pushkey: String,
@@ -32,6 +47,7 @@ pub struct PushDevice {
     pub data: Option<serde_json::Value>,
 }
 
+/// Push device kind
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum PushDeviceKind {
     #[serde(rename = "http")]
@@ -44,14 +60,83 @@ pub enum PushDeviceKind {
     WebPush,
 }
 
+/// Push response
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PushResponse {
     pub rejected: Vec<String>,
 }
 
+/// Push queue item
+#[derive(Debug, Clone)]
+pub struct PushQueueItem {
+    pub id: String,
+    pub user_id: String,
+    pub device: PushDevice,
+    pub notification: PushNotification,
+    pub created_at: i64,
+    pub attempts: u32,
+    pub last_attempt: Option<i64>,
+    pub status: PushQueueStatus,
+}
+
+impl PushQueueItem {
+    pub fn new(user_id: String, device: PushDevice, notification: PushNotification) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            user_id,
+            device,
+            notification,
+            created_at: Utc::now().timestamp_millis(),
+            attempts: 0,
+            last_attempt: None,
+            status: PushQueueStatus::Pending,
+        }
+    }
+
+    pub fn mark_attempted(&mut self) {
+        self.attempts += 1;
+        self.last_attempt = Some(Utc::now().timestamp_millis());
+    }
+
+    pub fn mark_sent(&mut self) {
+        self.status = PushQueueStatus::Sent;
+    }
+
+    pub fn mark_failed(&mut self) {
+        self.status = PushQueueStatus::Failed;
+    }
+
+    pub fn can_retry(&self, max_attempts: u32) -> bool {
+        self.attempts < max_attempts && self.status == PushQueueStatus::Pending
+    }
+}
+
+/// Push queue status
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PushQueueStatus {
+    Pending,
+    Sent,
+    Failed,
+}
+
+/// Push statistics
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PushStats {
+    pub total_sent: u64,
+    pub total_failed: u64,
+    pub queue_size: u64,
+    pub http_sent: u64,
+    pub fcm_sent: u64,
+    pub apns_sent: u64,
+    pub webpush_sent: u64,
+}
+
+/// Push service
 pub struct PushService {
     config: Arc<PushConfig>,
     http_client: reqwest::Client,
+    queue: Arc<RwLock<VecDeque<PushQueueItem>>>,
+    stats: Arc<RwLock<PushStats>>,
 }
 
 impl PushService {
@@ -61,11 +146,117 @@ impl PushService {
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
 
-        Self { config, http_client }
+        Self {
+            config,
+            http_client,
+            queue: Arc::new(RwLock::new(VecDeque::new())),
+            stats: Arc::new(RwLock::new(PushStats::default())),
+        }
     }
 
     pub fn is_enabled(&self) -> bool {
         self.config.is_enabled()
+    }
+
+    pub async fn queue_push(
+        &self,
+        user_id: String,
+        device: PushDevice,
+        notification: PushNotification,
+    ) -> String {
+        let item = PushQueueItem::new(user_id, device, notification);
+        let id = item.id.clone();
+        
+        self.queue.write().await.push_back(item);
+        
+        debug!(id = %id, "Push notification queued");
+        
+        id
+    }
+
+    pub async fn process_queue(&self) -> (u64, u64) {
+        let mut sent = 0u64;
+        let mut failed = 0u64;
+
+        let mut queue = self.queue.write().await;
+        
+        while let Some(mut item) = queue.pop_front() {
+            if !item.can_retry(self.config.retry_count) {
+                item.mark_failed();
+                failed += 1;
+                continue;
+            }
+
+            item.mark_attempted();
+
+            match self.send_notification(&item.device, &item.notification).await {
+                Ok(response) => {
+                    if response.rejected.contains(&item.device.pushkey) {
+                        item.mark_failed();
+                        failed += 1;
+                    } else {
+                        item.mark_sent();
+                        sent += 1;
+                    }
+                }
+                Err(_) => {
+                    if item.attempts >= self.config.retry_count {
+                        item.mark_failed();
+                        failed += 1;
+                    } else {
+                        queue.push_back(item);
+                    }
+                }
+            }
+        }
+
+        let mut stats = self.stats.write().await;
+        stats.total_sent += sent;
+        stats.total_failed += failed;
+        stats.queue_size = queue.len() as u64;
+
+        (sent, failed)
+    }
+
+    pub async fn get_queue_size(&self) -> usize {
+        self.queue.read().await.len()
+    }
+
+    pub async fn get_stats(&self) -> PushStats {
+        let stats = self.stats.read().await.clone();
+        let queue_size = self.queue.read().await.len() as u64;
+        
+        PushStats {
+            queue_size,
+            ..stats
+        }
+    }
+
+    pub async fn send_batch(
+        &self,
+        items: Vec<(String, PushDevice, PushNotification)>,
+    ) -> HashMap<String, Result<PushResponse, ApiError>> {
+        let mut results = HashMap::new();
+
+        for (user_id, device, notification) in items {
+            let result = self.send_notification(&device, &notification).await;
+            results.insert(user_id, result);
+
+            if let Ok(ref response) = results.values().last().unwrap() {
+                if response.rejected.is_empty() {
+                    let mut stats = self.stats.write().await;
+                    stats.total_sent += 1;
+                    match device.kind {
+                        PushDeviceKind::Http => stats.http_sent += 1,
+                        PushDeviceKind::Fcm => stats.fcm_sent += 1,
+                        PushDeviceKind::Apns => stats.apns_sent += 1,
+                        PushDeviceKind::WebPush => stats.webpush_sent += 1,
+                    }
+                }
+            }
+        }
+
+        results
     }
 
     pub async fn send_notification(

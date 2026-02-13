@@ -1,12 +1,16 @@
 use crate::common::config::OidcConfig;
 use crate::common::error::ApiError;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::debug;
+use tokio::sync::RwLock;
+use tracing::{debug, info};
 
+/// OIDC Discovery Document
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OidcDiscoveryDocument {
     pub issuer: String,
@@ -14,14 +18,39 @@ pub struct OidcDiscoveryDocument {
     pub token_endpoint: String,
     pub userinfo_endpoint: String,
     pub jwks_uri: String,
+    pub end_session_endpoint: Option<String>,
     pub response_types_supported: Vec<String>,
     pub subject_types_supported: Vec<String>,
     pub id_token_signing_alg_values_supported: Vec<String>,
     pub scopes_supported: Option<Vec<String>>,
     pub claims_supported: Option<Vec<String>>,
     pub code_challenge_methods_supported: Option<Vec<String>>,
+    pub token_endpoint_auth_methods_supported: Option<Vec<String>>,
+    pub introspection_endpoint: Option<String>,
+    pub revocation_endpoint: Option<String>,
 }
 
+/// OIDC JWKS (JSON Web Key Set)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OidcJwks {
+    pub keys: Vec<OidcJwk>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OidcJwk {
+    pub kty: String,
+    pub kid: Option<String>,
+    pub use_: Option<String>,
+    #[serde(rename = "use")]
+    pub use_alias: Option<String>,
+    pub alg: Option<String>,
+    pub n: Option<String>,
+    pub e: Option<String>,
+    pub x5c: Option<Vec<String>>,
+    pub x5t: Option<String>,
+}
+
+/// OIDC Token Response
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OidcTokenResponse {
     pub access_token: String,
@@ -32,6 +61,7 @@ pub struct OidcTokenResponse {
     pub scope: Option<String>,
 }
 
+/// OIDC User Info
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OidcUserInfo {
     pub sub: String,
@@ -45,6 +75,7 @@ pub struct OidcUserInfo {
     pub locale: Option<String>,
 }
 
+/// OIDC Auth Request
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OidcAuthRequest {
     pub url: String,
@@ -54,6 +85,7 @@ pub struct OidcAuthRequest {
     pub code_challenge: String,
 }
 
+/// OIDC User
 #[derive(Debug, Clone)]
 pub struct OidcUser {
     pub subject: String,
@@ -62,6 +94,7 @@ pub struct OidcUser {
     pub email: Option<String>,
 }
 
+/// OIDC ID Token Claims
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OidcIdTokenClaims {
     pub iss: String,
@@ -74,12 +107,103 @@ pub struct OidcIdTokenClaims {
     pub email_verified: Option<bool>,
     pub name: Option<String>,
     pub preferred_username: Option<String>,
+    pub at_hash: Option<String>,
+    pub c_hash: Option<String>,
 }
 
+/// OIDC Session
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OidcSession {
+    pub session_id: String,
+    pub user_id: String,
+    pub subject: String,
+    pub access_token: String,
+    pub refresh_token: Option<String>,
+    pub id_token: Option<String>,
+    pub created_at: i64,
+    pub expires_at: i64,
+    pub last_refreshed_at: Option<i64>,
+}
+
+impl OidcSession {
+    pub fn new(
+        user_id: String,
+        subject: String,
+        access_token: String,
+        refresh_token: Option<String>,
+        id_token: Option<String>,
+        expires_in_seconds: i64,
+    ) -> Self {
+        let now = Utc::now().timestamp_millis();
+        Self {
+            session_id: uuid::Uuid::new_v4().to_string(),
+            user_id,
+            subject,
+            access_token,
+            refresh_token,
+            id_token,
+            created_at: now,
+            expires_at: now + (expires_in_seconds * 1000),
+            last_refreshed_at: None,
+        }
+    }
+
+    pub fn is_expired(&self) -> bool {
+        Utc::now().timestamp_millis() > self.expires_at
+    }
+
+    pub fn is_valid(&self) -> bool {
+        !self.is_expired()
+    }
+
+    pub fn update_tokens(
+        &mut self,
+        access_token: String,
+        refresh_token: Option<String>,
+        expires_in_seconds: i64,
+    ) {
+        self.access_token = access_token;
+        self.refresh_token = refresh_token;
+        self.expires_at = Utc::now().timestamp_millis() + (expires_in_seconds * 1000);
+        self.last_refreshed_at = Some(Utc::now().timestamp_millis());
+    }
+}
+
+/// OIDC Logout Request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OidcLogoutRequest {
+    pub id_token_hint: Option<String>,
+    pub post_logout_redirect_uri: Option<String>,
+    pub state: Option<String>,
+}
+
+/// OIDC Logout Response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OidcLogoutResponse {
+    pub success: bool,
+    pub redirect_url: Option<String>,
+}
+
+/// OIDC Introspection Response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OidcIntrospectionResponse {
+    pub active: bool,
+    pub sub: Option<String>,
+    pub aud: Option<String>,
+    pub exp: Option<i64>,
+    pub iat: Option<i64>,
+    pub scope: Option<String>,
+    pub token_type: Option<String>,
+}
+
+/// OIDC Service
 pub struct OidcService {
     config: Arc<OidcConfig>,
     http_client: reqwest::Client,
     discovery: Option<OidcDiscoveryDocument>,
+    jwks: Option<OidcJwks>,
+    sessions: Arc<RwLock<HashMap<String, OidcSession>>>,
+    state_cache: Arc<RwLock<HashMap<String, OidcAuthRequest>>>,
 }
 
 impl OidcService {
@@ -93,6 +217,9 @@ impl OidcService {
             config,
             http_client,
             discovery: None,
+            jwks: None,
+            sessions: Arc::new(RwLock::new(HashMap::new())),
+            state_cache: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -123,8 +250,44 @@ impl OidcService {
         let discovery: OidcDiscoveryDocument = response.json().await
             .map_err(|e| ApiError::internal(format!("Failed to parse discovery document: {}", e)))?;
 
+        info!(
+            issuer = %discovery.issuer,
+            auth_endpoint = %discovery.authorization_endpoint,
+            "OIDC discovery completed"
+        );
+
         self.discovery = Some(discovery.clone());
         Ok(discovery)
+    }
+
+    pub async fn fetch_jwks(&mut self) -> Result<OidcJwks, ApiError> {
+        if let Some(ref jwks) = self.jwks {
+            return Ok(jwks.clone());
+        }
+
+        let jwks_uri = self.config.jwks_uri.as_ref()
+            .or_else(|| self.discovery.as_ref().map(|d| &d.jwks_uri))
+            .ok_or_else(|| ApiError::internal("JWKS URI not configured"))?;
+
+        debug!("Fetching OIDC JWKS from {}", jwks_uri);
+
+        let response = self.http_client
+            .get(jwks_uri)
+            .send()
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to fetch JWKS: {}", e)))?;
+
+        if !response.status().is_success() {
+            return Err(ApiError::internal(format!("JWKS request failed: {}", response.status())));
+        }
+
+        let jwks: OidcJwks = response.json().await
+            .map_err(|e| ApiError::internal(format!("Failed to parse JWKS: {}", e)))?;
+
+        info!(key_count = jwks.keys.len(), "OIDC JWKS fetched");
+
+        self.jwks = Some(jwks.clone());
+        Ok(jwks)
     }
 
     pub fn get_authorization_url(&self, state: &str, redirect_uri: &str) -> String {
@@ -410,6 +573,223 @@ impl OidcService {
 
         response.json().await
             .map_err(|e| ApiError::internal(format!("Failed to parse token response: {}", e)))
+    }
+
+    pub fn get_logout_url(&self, logout_request: &OidcLogoutRequest) -> Option<String> {
+        let end_session_endpoint = self.config.jwks_uri.as_ref()
+            .or_else(|| self.discovery.as_ref().and_then(|d| d.end_session_endpoint.as_ref()))?;
+
+        let mut url = url::Url::parse(end_session_endpoint).ok()?;
+        {
+            let mut query = url.query_pairs_mut();
+            if let Some(ref id_token_hint) = logout_request.id_token_hint {
+                query.append_pair("id_token_hint", id_token_hint);
+            }
+            if let Some(ref redirect_uri) = logout_request.post_logout_redirect_uri {
+                query.append_pair("post_logout_redirect_uri", redirect_uri);
+            }
+            if let Some(ref state) = logout_request.state {
+                query.append_pair("state", state);
+            }
+        }
+
+        Some(url.to_string())
+    }
+
+    pub async fn logout(&self, session_id: &str) -> Result<OidcLogoutResponse, ApiError> {
+        let mut sessions = self.sessions.write().await;
+        
+        if let Some(session) = sessions.remove(session_id) {
+            info!(
+                session_id = %session_id,
+                user_id = %session.user_id,
+                "OIDC session terminated"
+            );
+
+            if let Some(ref id_token) = session.id_token {
+                let logout_request = OidcLogoutRequest {
+                    id_token_hint: Some(id_token.clone()),
+                    post_logout_redirect_uri: None,
+                    state: None,
+                };
+
+                if let Some(logout_url) = self.get_logout_url(&logout_request) {
+                    return Ok(OidcLogoutResponse {
+                        success: true,
+                        redirect_url: Some(logout_url),
+                    });
+                }
+            }
+
+            Ok(OidcLogoutResponse {
+                success: true,
+                redirect_url: None,
+            })
+        } else {
+            Ok(OidcLogoutResponse {
+                success: false,
+                redirect_url: None,
+            })
+        }
+    }
+
+    pub async fn create_session(
+        &self,
+        user_id: String,
+        subject: String,
+        token_response: &OidcTokenResponse,
+    ) -> OidcSession {
+        let expires_in = token_response.expires_in.unwrap_or(3600);
+        
+        let session = OidcSession::new(
+            user_id,
+            subject,
+            token_response.access_token.clone(),
+            token_response.refresh_token.clone(),
+            token_response.id_token.clone(),
+            expires_in,
+        );
+
+        self.sessions.write().await.insert(session.session_id.clone(), session.clone());
+
+        info!(
+            session_id = %session.session_id,
+            expires_in = expires_in,
+            "OIDC session created"
+        );
+
+        session
+    }
+
+    pub async fn get_session(&self, session_id: &str) -> Option<OidcSession> {
+        self.sessions.read().await.get(session_id).cloned()
+    }
+
+    pub async fn validate_session(&self, session_id: &str) -> bool {
+        self.sessions
+            .read()
+            .await
+            .get(session_id)
+            .map(|s| s.is_valid())
+            .unwrap_or(false)
+    }
+
+    pub async fn refresh_session(&self, session_id: &str) -> Result<OidcSession, ApiError> {
+        let mut sessions = self.sessions.write().await;
+        
+        let session = sessions.get_mut(session_id)
+            .ok_or_else(|| ApiError::not_found("Session not found"))?;
+
+        let refresh_token = session.refresh_token.clone()
+            .ok_or_else(|| ApiError::bad_request("No refresh token available"))?;
+
+        let token_response = self.refresh_token(&refresh_token).await?;
+
+        session.update_tokens(
+            token_response.access_token,
+            token_response.refresh_token,
+            token_response.expires_in.unwrap_or(3600),
+        );
+
+        info!(session_id = %session_id, "OIDC session refreshed");
+
+        Ok(session.clone())
+    }
+
+    pub async fn introspect_token(&self, token: &str) -> Result<OidcIntrospectionResponse, ApiError> {
+        let introspection_endpoint = self.discovery.as_ref()
+            .and_then(|d| d.introspection_endpoint.as_ref());
+
+        let Some(endpoint) = introspection_endpoint else {
+            return Ok(OidcIntrospectionResponse {
+                active: false,
+                sub: None,
+                aud: None,
+                exp: None,
+                iat: None,
+                scope: None,
+                token_type: None,
+            });
+        };
+
+        let params = [("token", token)];
+
+        let mut request = self.http_client.post(endpoint).form(&params);
+
+        if let Some(ref secret) = self.config.client_secret {
+            request = request.basic_auth(&self.config.client_id, Some(secret));
+        }
+
+        let response = request.send().await
+            .map_err(|e| ApiError::internal(format!("Token introspection failed: {}", e)))?;
+
+        if !response.status().is_success() {
+            return Ok(OidcIntrospectionResponse {
+                active: false,
+                sub: None,
+                aud: None,
+                exp: None,
+                iat: None,
+                scope: None,
+                token_type: None,
+            });
+        }
+
+        response.json().await
+            .map_err(|e| ApiError::internal(format!("Failed to parse introspection response: {}", e)))
+    }
+
+    pub async fn revoke_token(&self, token: &str, token_type_hint: Option<&str>) -> Result<(), ApiError> {
+        let revocation_endpoint = self.discovery.as_ref()
+            .and_then(|d| d.revocation_endpoint.as_ref());
+
+        let Some(endpoint) = revocation_endpoint else {
+            debug!("Token revocation not supported by provider");
+            return Ok(());
+        };
+
+        let mut params = vec![("token", token)];
+        if let Some(hint) = token_type_hint {
+            params.push(("token_type_hint", hint));
+        }
+
+        let mut request = self.http_client.post(endpoint).form(&params);
+
+        if let Some(ref secret) = self.config.client_secret {
+            request = request.basic_auth(&self.config.client_id, Some(secret));
+        }
+
+        let response = request.send().await
+            .map_err(|e| ApiError::internal(format!("Token revocation failed: {}", e)))?;
+
+        if response.status().is_success() {
+            info!("Token revoked successfully");
+        } else {
+            debug!("Token revocation returned non-success status");
+        }
+
+        Ok(())
+    }
+
+    pub async fn cleanup_expired_sessions(&self) -> usize {
+        let mut sessions = self.sessions.write().await;
+        let before = sessions.len();
+        
+        sessions.retain(|_, s| s.is_valid());
+        
+        let removed = before - sessions.len();
+        if removed > 0 {
+            debug!(count = removed, "Expired OIDC sessions cleaned up");
+        }
+        removed
+    }
+
+    pub async fn store_auth_request(&self, state: &str, auth_request: OidcAuthRequest) {
+        self.state_cache.write().await.insert(state.to_string(), auth_request);
+    }
+
+    pub async fn get_auth_request(&self, state: &str) -> Option<OidcAuthRequest> {
+        self.state_cache.write().await.remove(state)
     }
 
     pub fn get_config(&self) -> &OidcConfig {
