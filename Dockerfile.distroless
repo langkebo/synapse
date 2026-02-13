@@ -1,0 +1,37 @@
+# Synapse Rust - Production Dockerfile for ARM64
+# Uses pre-built binary with distroless base (no network needed)
+
+# Stage 1: Copy binary to scratch for export
+FROM scratch AS binary
+COPY target/release/synapse-rust /synapse-rust
+
+# Stage 2: Final runtime image
+FROM gcr.io/distroless/cc-debian12:latest
+
+WORKDIR /app
+
+# Create directories (distroless has minimal shell)
+# Note: Volumes should be mounted at runtime
+
+# Copy binary from scratch
+COPY --from=binary /synapse-rust /usr/local/bin/synapse-rust
+
+# Expose Matrix ports
+# 8008: Client API
+# 8448: Federation API
+EXPOSE 8008 8448
+
+# Environment variables
+ENV RUST_LOG=info \
+    RUST_BACKTRACE=1 \
+    SYNAPSE_CONFIG_PATH=/app/config/homeserver.yaml
+
+# Default command
+CMD ["/usr/local/bin/synapse-rust"]
+
+# Labels for container metadata
+LABEL org.opencontainers.image.title="Synapse Rust" \
+      org.opencontainers.image.description="Matrix homeserver implementation in Rust" \
+      org.opencontainers.image.version="2.0" \
+      org.opencontainers.image.architecture="arm64" \
+      org.opencontainers.image.vendor="Synapse Rust Project"

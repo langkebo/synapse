@@ -1,4 +1,6 @@
-target
+target/*
+!target/release
+!target/release/synapse-rust
 **/*.rs.bk
 .git
 .vscode

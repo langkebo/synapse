@@ -1,0 +1,112 @@
+# Synapse Rust - Production Dockerfile for ARM64
+# Multi-stage build for minimal image size and security
+
+# ============================================
+# Stage 1: Build dependencies (cached layer)
+# ============================================
+FROM rust:1.93-slim-bookworm AS deps-builder
+
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy dependency files first for caching
+COPY Cargo.toml Cargo.lock ./
+
+# Create dummy source files to build dependencies
+RUN mkdir -p src/bin && \
+    echo "fn main() {}" > src/main.rs && \
+    echo "fn main() {}" > src/lib.rs && \
+    echo "fn main() {}" > src/bin/generate_test_keypair.rs && \
+    echo "fn main() {}" > src/bin/synapse_worker.rs
+
+# Build dependencies only (cached layer)
+RUN cargo build --release && \
+    rm -rf src
+
+# ============================================
+# Stage 2: Build application
+# ============================================
+FROM deps-builder AS builder
+
+# Copy source code
+COPY . .
+
+# Build with optimizations
+RUN touch src/main.rs src/lib.rs && \
+    cargo build --release --locked
+
+# Strip binaries for smaller size
+RUN strip --strip-unneeded /app/target/release/synapse-rust && \
+    strip --strip-unneeded /app/target/release/synapse_worker 2>/dev/null || true && \
+    strip --strip-unneeded /app/target/release/generate_test_keypair 2>/dev/null || true
+
+# ============================================
+# Stage 3: Runtime (minimal base)
+# ============================================
+FROM debian:bookworm-slim AS runtime
+
+# Install minimal runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    libssl3 \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Create non-root user for security
+RUN groupadd -r synapse && useradd -r -g synapse synapse
+
+WORKDIR /app
+
+# Create necessary directories with proper permissions
+RUN mkdir -p /app/config /app/data /app/logs /app/media && \
+    chown -R synapse:synapse /app
+
+# Copy binaries from builder
+COPY --from=builder /app/target/release/synapse-rust /usr/local/bin/synapse-rust
+COPY --from=builder /app/target/release/synapse_worker /usr/local/bin/synapse_worker 2>/dev/null || true
+COPY --from=builder /app/target/release/generate_test_keypair /usr/local/bin/generate_test_keypair 2>/dev/null || true
+
+# Set permissions
+RUN chmod +x /usr/local/bin/synapse-rust && \
+    chmod +x /usr/local/bin/synapse_worker 2>/dev/null || true && \
+    chmod +x /usr/local/bin/generate_test_keypair 2>/dev/null || true
+
+# Copy default configuration (if exists)
+COPY --chown=synapse:synapse docker/config/homeserver.yaml /app/config/homeserver.yaml
+
+# Expose Matrix ports
+# 8008: Client API
+# 8448: Federation API
+EXPOSE 8008 8448
+
+# Environment variables
+ENV RUST_LOG=info \
+    RUST_BACKTRACE=1 \
+    SYNAPSE_CONFIG_PATH=/app/config/homeserver.yaml
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8008/_matrix/client/versions || exit 1
+
+# Switch to non-root user
+USER synapse
+
+# Volume for persistent data
+VOLUME ["/app/data", "/app/media", "/app/logs", "/app/config"]
+
+# Default command
+CMD ["synapse-rust"]
+
+# ============================================
+# Labels for container metadata
+# ============================================
+LABEL org.opencontainers.image.title="Synapse Rust" \
+      org.opencontainers.image.description="Matrix homeserver implementation in Rust" \
+      org.opencontainers.image.version="2.0" \
+      org.opencontainers.image.architecture="arm64" \
+      org.opencontainers.image.vendor="Synapse Rust Project"
